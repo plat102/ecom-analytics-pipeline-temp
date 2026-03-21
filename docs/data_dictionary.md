@@ -113,6 +113,15 @@ Data Coverage: 65 days
 
 ---
 
+### Product
+
+**Total Distinct Products:** 19,418
+
+**Method:** Count distinct `product_id` values
+- **Script:** [09_distinct_product_count.js](../scripts/explore_raw_glamira/09_distinct_product_count.js)
+
+---
+
 ### Store Information
 
 **Total Stores:** 86 distinct store IDs
