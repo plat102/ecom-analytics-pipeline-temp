@@ -22,6 +22,18 @@ trio = ["trio (>=0.30)"]
 wmi = ["wmi (>=1.5.1) ; platform_system == \"Windows\""]
 
 [[package]]
+name = "ip2location"
+version = "8.11.0"
+description = "This is an IP geolocation library that enables the user to find the country, region, city, latitude and longitude, ZIP code, time zone, ISP, domain name, area code, weather info, mobile info, elevation, usage type, address type and IAB category from an IP address. It supports both IPv4 and IPv6 lookup."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "ip2location-8.11.0-py3-none-any.whl", hash = "sha256:cee21e91ccffbbc5486c588fac5ea5d210feb7e1754d17090e7c6ab358bab16a"},
+    {file = "ip2location-8.11.0.tar.gz", hash = "sha256:444149a741f6575d7711cf5414cfb81f0c44f830e2e94ab968d74665f8baaa31"},
+]
+
+[[package]]
 name = "pymongo"
 version = "4.16.0"
 description = "PyMongo - the Official MongoDB Python driver"
@@ -133,4 +145,4 @@ cli = ["click (>=5.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12"
-content-hash = "e175f64c38f400e5cec3cf5cde79e008b8ce7a78c650e14bef4e847edadb7f46"
+content-hash = "9a69584dba7fbb016bc915a5f32535e2ae00f2d4369c8ceaecec342035932a73"
