@@ -155,3 +155,20 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Project-specific directories
+data/
+logs/
+
+# Data files
+*.csv
+*.json
+*.parquet
+*.avro
+*.tar.gz
+*.zip
+*.bin
+*.dat
+
+# Credentials and config
+credentials.json
+service-account*.json

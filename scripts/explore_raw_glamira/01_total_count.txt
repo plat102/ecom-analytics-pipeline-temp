@@ -1,0 +1,10 @@
+// MongoDB Query: Total document count
+// Run in MongoDB shell
+
+use countly;
+
+// Fast estimate
+db.summary.estimatedDocumentCount();
+
+// Exact count
+db.summary.countDocuments({});

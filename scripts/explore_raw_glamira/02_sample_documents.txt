@@ -1,0 +1,9 @@
+use countly;
+
+// Get 5 random sample documents
+db.summary.aggregate([
+  { $sample: { size: 5 } }
+]);
+
+// Or get first N documents
+db.summary.find().limit(5).pretty();
