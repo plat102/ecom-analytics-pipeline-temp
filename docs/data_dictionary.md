@@ -2,7 +2,6 @@
 
 **Database:** `countly`
 **Collection:** `summary`
-**Last Updated:** 2026-03-21
 
 ---
 
