@@ -92,95 +92,109 @@ async def fetch_product_async(
     client: httpx.AsyncClient,
     product_id: str,
     url: str,
-    semaphore: asyncio.Semaphore,
-    retry_count: int = 0
+    semaphore: asyncio.Semaphore
 ) -> Dict:
     """
     Fetch single product with retry logic, 404 fallback, and rate limiting.
+
+    Uses while loop instead of recursion to avoid semaphore deadlock.
 
     Args:
         client: Shared AsyncClient
         product_id: Product ID
         url: Product URL
         semaphore: Semaphore for concurrency control
-        retry_count: Current retry attempt (for exponential backoff)
 
     Returns:
         Dict with product data or error info
     """
-    async with semaphore:  # Limit concurrent requests
-        result = {
-            "product_id": product_id,
-            "url": url,
-            "status": "error",
-            "http_status": None,
-            "error_message": None,
-            "fallback_used": False,
-        }
+    result = {
+        "product_id": product_id,
+        "url": url,
+        "status": "error",
+        "http_status": None,
+        "error_message": None,
+        "fallback_used": False,
+    }
 
-        # Fetch HTML
-        html, status_code = await fetch_html_async(client, url)
-        result["http_status"] = status_code
+    retry_count = 0
 
-        # Handle retryable errors (403/429/503) with exponential backoff
-        if status_code in [403, 429, 503]:
-            if retry_count < MAX_RETRIES:
-                backoff_time = BACKOFF_BASE ** (retry_count + 1)
+    # Retry loop - avoids semaphore deadlock from recursion
+    while retry_count <= MAX_RETRIES:
+        async with semaphore:  # Acquire semaphore for each attempt
+            # Fetch HTML
+            html, status_code = await fetch_html_async(client, url)
+            result["http_status"] = status_code
+
+            # Handle retryable errors (403/429/503) with exponential backoff
+            if status_code in [403, 429, 503] and retry_count < MAX_RETRIES:
+                retry_count += 1
+                backoff_time = BACKOFF_BASE ** retry_count
                 error_names = {403: "Forbidden", 429: "Rate limited", 503: "Server error"}
                 logger.warning(
                     f"{error_names[status_code]} ({status_code}) for product {product_id}, "
-                    f"retry {retry_count + 1}/{MAX_RETRIES} after {backoff_time}s"
+                    f"retry {retry_count}/{MAX_RETRIES} after {backoff_time}s"
                 )
-                await asyncio.sleep(backoff_time)
-                return await fetch_product_async(
-                    client, product_id, url, semaphore, retry_count + 1
-                )
-            else:
-                error_msgs = {
-                    403: "Forbidden after retries (WAF/IP blocking)",
-                    429: "Rate limited after retries",
-                    503: "Server error after retries"
-                }
-                result["error_message"] = f"{error_msgs[status_code]} ({MAX_RETRIES} attempts)"
+                # Sleep OUTSIDE semaphore (after releasing it)
+
+            # Handle 404 with catalog fallback
+            elif status_code == 404:
+                catalog_url = f"https://www.glamira.com/catalog/product/view/id/{product_id}"
+                logger.info(f"Product {product_id}: 404, trying catalog URL")
+
+                html, status_code = await fetch_html_async(client, catalog_url)
+                result["http_status"] = status_code
+                result["fallback_used"] = True
+
+                if html is None:
+                    result["error_message"] = f"Failed from both URLs (HTTP {status_code})"
+                    return result
+                # Continue to extract data from fallback
+
+            elif html is None:
+                # Non-retryable error or max retries exceeded
+                if status_code in [403, 429, 503]:
+                    error_msgs = {
+                        403: "Forbidden after retries (WAF/IP blocking)",
+                        429: "Rate limited after retries",
+                        503: "Server error after retries"
+                    }
+                    result["error_message"] = f"{error_msgs[status_code]} ({MAX_RETRIES} attempts)"
+                else:
+                    result["error_message"] = f"Failed to fetch HTML (HTTP {status_code})"
                 return result
 
-        # Handle 404 with catalog fallback
-        if status_code == 404:
-            catalog_url = f"https://www.glamira.com/catalog/product/view/id/{product_id}"
-            logger.info(f"Product {product_id}: 404, trying catalog URL")
+            # If we have HTML, try to extract data
+            if html:
+                # Extract react_data
+                react_data = extract_react_data(html)
 
-            html, status_code = await fetch_html_async(client, catalog_url)
-            result["http_status"] = status_code
-            result["fallback_used"] = True
+                if react_data is None:
+                    result["status"] = "no_react_data"
+                    result["error_message"] = "react_data not found in HTML"
+                    return result
 
-            if html is None:
-                result["error_message"] = f"Failed from both URLs (HTTP {status_code})"
+                # Extract product fields
+                result["status"] = "success"
+                fields = extract_product_fields(react_data)
+                result.update(fields)
+
+                # Preserve input product_id (database ID is source of truth)
+                result["product_id"] = product_id
+
+                # Random delay to mimic human behavior
+                delay = random.uniform(DELAY_MIN, DELAY_MAX)
+                await asyncio.sleep(delay)
+
                 return result
-        elif html is None:
-            result["error_message"] = f"Failed to fetch HTML (HTTP {status_code})"
-            return result
 
-        # Extract react_data
-        react_data = extract_react_data(html)
+        # Sleep OUTSIDE semaphore to avoid blocking
+        if retry_count > 0 and retry_count <= MAX_RETRIES and result["status"] == "error":
+            backoff_time = BACKOFF_BASE ** retry_count
+            await asyncio.sleep(backoff_time)
 
-        if react_data is None:
-            result["status"] = "no_react_data"
-            result["error_message"] = "react_data not found in HTML"
-            return result
-
-        # Extract product fields
-        result["status"] = "success"
-        fields = extract_product_fields(react_data)
-        result.update(fields)
-
-        # Preserve input product_id (database ID is source of truth)
-        result["product_id"] = product_id
-
-        # Random delay to mimic human behavior
-        delay = random.uniform(DELAY_MIN, DELAY_MAX)
-        await asyncio.sleep(delay)
-
-        return result
+    # Max retries exceeded
+    return result
 
 
 # ============================================================================
@@ -210,7 +224,7 @@ async def crawl_products_async(
     # Create shared async client with connection pooling
     async with httpx.AsyncClient(
         http2=True,
-        timeout=60.0,  # Increased from 30s to handle retries
+        timeout=30.0,
         follow_redirects=True,
         limits=httpx.Limits(
             max_connections=concurrency,
