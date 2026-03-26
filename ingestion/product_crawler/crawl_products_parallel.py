@@ -27,9 +27,9 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from common.utils.logger import get_logger
+from ingestion.product_crawler.parsers import parse_product_name
 from ingestion.product_crawler.utils import (
     fetch_html_with_playwright,
-    parse_product_name,
     log_error,
     save_checkpoint,
     load_checkpoint,

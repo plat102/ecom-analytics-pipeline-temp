@@ -1,9 +1,10 @@
 """
 Shared utilities for product crawling.
-- Parsing (BeautifulSoup)
 - Fetching (Playwright)
 - Checkpoint management
 - Error logging
+
+Note: Parsing functions moved to parsers.py
 """
 
 import json
@@ -11,7 +12,6 @@ import time
 from datetime import datetime, UTC
 from pathlib import Path
 
-from bs4 import BeautifulSoup
 from playwright.sync_api import Page
 
 from common.utils.logger import get_logger
@@ -134,37 +134,5 @@ def fetch_html_with_playwright(page: Page, url: str, product_id: str, error_file
 
                 logger.warning(f"Failed for {product_id} after {MAX_RETRIES} attempts: {error_msg[:100]}")
                 return None
-
-    return None
-
-
-def parse_product_name(html: str):
-    """
-    Extract product name from HTML using fallback selectors.
-
-    Strategy:
-    1. Primary: og:title meta tag
-    2. Fallback 1: h1 span
-    3. Fallback 2: any h1 tag
-
-    Returns:
-        str | None: Product name or None if not found
-    """
-    soup = BeautifulSoup(html, 'html.parser')
-
-    # Primary: Open Graph title
-    og_title = soup.find('meta', property='og:title')
-    if og_title and og_title.get('content'):
-        return og_title['content'].strip()
-
-    # Fallback 1: h1 span
-    h1_span = soup.select_one('h1 span')
-    if h1_span:
-        return h1_span.get_text(strip=True)
-
-    # Fallback 2: any h1 tag
-    h1_tag = soup.find('h1')
-    if h1_tag:
-        return h1_tag.get_text(strip=True)
 
     return None
