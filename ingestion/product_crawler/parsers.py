@@ -80,6 +80,62 @@ def extract_react_data(html: str) -> dict | None:
     return None
 
 
+def extract_basic_fields_from_html(html: str) -> dict | None:
+    """
+    Fallback parser when react_data not found.
+    Extracts product data from JSON-LD structured data (Google SEO standard for indexing).
+
+    Note:
+        Marked with 'data_source': 'json_ld_fallback' for tracking.
+    """
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        script = soup.find('script', id='structured-data', type='application/ld+json')
+
+        if script and script.string:
+            structured_data = json.loads(script.string)
+            product_data = structured_data.get('mainEntity', {})
+
+            if product_data:
+                # Extract offers data
+                offers = product_data.get('offers', {})
+
+                # Extract additional properties (stone, metal info)
+                additional_props = {}
+                for prop in product_data.get('additionalProperty', []):
+                    if isinstance(prop, dict):
+                        name = prop.get('name', '')
+                        value = prop.get('value', '')
+                        if name and value:
+                            additional_props[name.lower()] = value
+
+                result = {
+                    'product_name': product_data.get('name'),
+                    'sku': product_data.get('sku'),
+                    'category_name': product_data.get('category'),
+                    'price': offers.get('price'),
+                    'currency_code': offers.get('priceCurrency'),
+                    'availability': offers.get('availability'),
+                    'brand': product_data.get('brand', {}).get('name') if isinstance(product_data.get('brand'), dict) else None,
+                    'data_source': 'json_ld_fallback',
+                    'note': 'Fallback: JSON-LD structured data'
+                }
+
+                # Add additional properties if available
+                if additional_props:
+                    result['additional_properties'] = additional_props
+
+                # Must have at least name and sku
+                if result['product_name'] and result['sku']:
+                    logger.info("Fallback parser: JSON-LD structured data succeeded")
+                    return result
+
+    except (json.JSONDecodeError, AttributeError, KeyError) as e:
+        logger.warning(f"JSON-LD fallback parser failed: {e}")
+
+    return None
+
+
 def extract_product_fields(react_data: dict) -> dict:
     """
     Extract product fields from react_data object for analytics.

@@ -57,6 +57,49 @@ project_root = Path(__file__).parent.parent.parent
 INPUT_FILE = project_root / "data" / "exports" / "product_url_map.csv"
 CHECKPOINT_FILE = project_root / "data" / "exports" / "crawl_checkpoint.json"
 
+# URL Cleaning - Tracking parameters to remove
+TRACKING_PARAMS = [
+    'fbclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+    'itm_source', 'itm_medium', 'itm_campaign', 'itm_content',
+    'gclid', 'gclsrc', '_ga', 'mc_cid', 'mc_eid',
+    'msclkid', 'zanpid', 'aff_id', 'ref', 'source'
+]
+
+
+# ============================================================================
+# URL CLEANING
+# ============================================================================
+
+def clean_url(url: str) -> str:
+    """
+    Remove tracking parameters from URL to reduce WAF detection.
+    Tracking parameters (fbclid, utm_*, itm_*, etc.) trigger WAF scoring.
+
+    Example:
+        >>> clean_url("https://glamira.com/ring.html?fbclid=123&alloy=gold")
+        'https://glamira.com/ring.html?alloy=gold'
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+
+    parsed = urlparse(url)
+
+    # Parse query parameters
+    params = parse_qs(parsed.query, keep_blank_values=True)
+
+    # Remove tracking params (keep product params like alloy, stone, diamond)
+    cleaned_params = {
+        k: v for k, v in params.items()
+        if k not in TRACKING_PARAMS
+    }
+
+    # Rebuild query string
+    new_query = urlencode(cleaned_params, doseq=True) if cleaned_params else ''
+
+    # Rebuild URL
+    cleaned = parsed._replace(query=new_query)
+
+    return urlunparse(cleaned)
+
 
 # ============================================================================
 # CHECKPOINT MANAGEMENT

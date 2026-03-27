@@ -26,7 +26,11 @@ sys.path.insert(0, str(project_root))
 
 import httpx
 from common.utils.logger import get_logger
-from ingestion.product_crawler.parsers import extract_react_data, extract_product_fields
+from ingestion.product_crawler.parsers import (
+    extract_react_data,
+    extract_product_fields,
+    extract_basic_fields_from_html,
+)
 from ingestion.product_crawler.utils import (
     USER_AGENTS,
     DELAY_MIN,
@@ -38,6 +42,7 @@ from ingestion.product_crawler.utils import (
     CHECKPOINT_FILE,
     save_checkpoint,
     get_browser_headers,
+    clean_url,
 )
 
 logger = get_logger(__name__)
@@ -108,6 +113,9 @@ async def fetch_product_async(
     Returns:
         Dict with product data or error info
     """
+    # Clean URL first - remove tracking params (fbclid, utm_*, itm_*)
+    url = clean_url(url)
+
     result = {
         "product_id": product_id,
         "url": url,
@@ -172,11 +180,27 @@ async def fetch_product_async(
                 react_data = extract_react_data(html)
 
                 if react_data is None:
-                    result["status"] = "no_react_data"
-                    result["error_message"] = "react_data not found in HTML"
-                    return result
+                    # Try HTML fallback parser for edge cases
+                    # (discontinued products, old layouts, server-side rendered pages)
+                    basic_fields = extract_basic_fields_from_html(html)
 
-                # Extract product fields
+                    if basic_fields:
+                        result["status"] = "success"
+                        result.update(basic_fields)
+                        result["product_id"] = product_id
+                        logger.info(f"Product {product_id}: Recovered via HTML fallback parser")
+
+                        # Random delay
+                        delay = random.uniform(DELAY_MIN, DELAY_MAX)
+                        await asyncio.sleep(delay)
+                        return result
+                    else:
+                        # Both parsers failed
+                        result["status"] = "no_react_data"
+                        result["error_message"] = "react_data not found, HTML fallback also failed"
+                        return result
+
+                # Extract product fields from react_data
                 result["status"] = "success"
                 fields = extract_product_fields(react_data)
                 result.update(fields)
