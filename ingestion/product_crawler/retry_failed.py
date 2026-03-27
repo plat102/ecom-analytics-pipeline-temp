@@ -343,9 +343,10 @@ async def main():
             with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
                 dlq = json.load(f)
 
-            # Merge priority: curl_cffi > dlq > original
+            # Merge priority: curl_cffi (success only) > dlq > original
             dlq_map = {r["product_id"]: r for r in dlq}
-            cffi_map = {r["product_id"]: r for r in results}
+            # Only use curl_cffi results if status="success" (don't override DLQ successes with failures)
+            cffi_map = {r["product_id"]: r for r in results if r.get("status") == "success"}
 
             merged = []
             for item in original:
