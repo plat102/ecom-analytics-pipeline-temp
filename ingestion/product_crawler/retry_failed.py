@@ -8,21 +8,28 @@ Retries only failed products from a previous crawl with settings:
 - HTML fallback parser enabled
 
 Usage:
+    # Retry all failures with httpx (default)
     poetry run python -m ingestion.product_crawler.retry_failed
 
+    # Retry only 403 errors with curl_cffi (TLS spoofing)
+    poetry run python -m ingestion.product_crawler.retry_failed --403-only
+
 Input:
-    data/exports/full_crawl_results.json (previous crawl results)
+    data/exports/full_crawl_results.json (or retry_failed_results.json for --403-only)
 
 Output:
     data/exports/retry_failed_results.json (retry results only)
     data/exports/full_crawl_results_merged.json (merged results)
 """
 
+import argparse
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 from typing import List, Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add project root
 project_root = Path(__file__).parent.parent.parent
@@ -30,7 +37,8 @@ sys.path.insert(0, str(project_root))
 
 from common.utils.logger import get_logger
 from ingestion.product_crawler.crawler import crawl_products_async
-from ingestion.product_crawler.utils import clean_url
+from ingestion.product_crawler.utils import clean_url, get_browser_headers
+from ingestion.product_crawler.parsers import extract_react_data, extract_basic_fields_from_html, extract_product_fields
 
 logger = get_logger(__name__)
 
@@ -210,32 +218,171 @@ def merge_results(
     logger.info(f"\nMerged results saved to: {output_file}")
 
 
-async def main():
-    """Main entry point for DLQ retry."""
-    logger.info("Dead Letter Queue (DLQ) Retry for Failed Products")
+def retry_403_with_curlcffi(
+    input_file: Path,
+    output_file: Path
+) -> List[Dict]:
+    """
+    Retry only 403 errors using curl_cffi (TLS spoofing).
+
+    Args:
+        input_file: Previous retry results (with 403 failures)
+        output_file: Output for curl_cffi results
+
+    Returns:
+        List of results
+    """
+    try:
+        from curl_cffi import requests as curl_requests
+    except ImportError:
+        logger.error("curl_cffi not installed! Install: poetry add curl_cffi")
+        sys.exit(1)
+
+    # Load previous results
+    with open(input_file, "r", encoding="utf-8") as f:
+        previous = json.load(f)
+
+    # Filter only 403
+    failed_403 = [r for r in previous if r.get("status") == "error" and r.get("http_status") == 403]
+
+    logger.info(f"Found {len(failed_403)} products with HTTP 403 to retry with curl_cffi")
+
+    if not failed_403:
+        return []
+
+    results = []
+    start = time.time()
+
+    def fetch_one(product_id: int, url: str) -> Dict:
+        """Fetch single product with curl_cffi."""
+        result = {"product_id": product_id, "url": url, "status": "error", "tool": "curl_cffi"}
+
+        try:
+            resp = curl_requests.get(url, headers=get_browser_headers(), impersonate="chrome120", timeout=30)
+            result["http_status"] = resp.status_code
+
+            if resp.status_code != 200:
+                result["error_message"] = f"HTTP {resp.status_code}"
+                return result
+
+            html = resp.text
+
+            # Try react_data
+            react_data = extract_react_data(html)
+            if react_data:
+                result["status"] = "success"
+                result.update(extract_product_fields(react_data))
+                result["data_source"] = "react_data"
+                return result
+
+            # Try JSON-LD
+            basic = extract_basic_fields_from_html(html)
+            if basic:
+                result["status"] = "success"
+                result.update(basic)
+                result["product_id"] = product_id
+                return result
+
+            result["error_message"] = "No data found"
+
+        except Exception as e:
+            result["error_message"] = str(e)[:100]
+
+        return result
+
+    # Process with threading
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(fetch_one, r["product_id"], clean_url(r["url"])): r for r in failed_403}
+
+        for i, future in enumerate(as_completed(futures), 1):
+            results.append(future.result())
+
+            if i % 50 == 0 or i == len(failed_403):
+                elapsed = time.time() - start
+                success = sum(1 for r in results if r["status"] == "success")
+                logger.info(f"[{i}/{len(failed_403)}] Recovered: {success} | Elapsed: {elapsed/60:.1f}min")
+
+            time.sleep(2.0)  # Rate limit
+
+    # Summary
+    success_count = sum(1 for r in results if r["status"] == "success")
+
+    logger.info("\n" + "=" * 70)
+    logger.info(f"curl_cffi retry: {success_count}/{len(results)} recovered ({success_count/len(results)*100:.1f}%)")
     logger.info("=" * 70)
 
-    # Retry failed products
-    retry_results = await retry_failed_products(
-        input_file=INPUT_FILE,
-        output_file=OUTPUT_FILE,
-        concurrency=DLQ_CONCURRENCY
-    )
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
 
-    if not retry_results:
-        logger.info("No products to retry. Exiting.")
-        return
+    return results
 
-    # Merge with original results
-    logger.info("\nMerging retry results with original crawl...")
-    merge_results(
-        original_file=INPUT_FILE,
-        retry_file=OUTPUT_FILE,
-        output_file=MERGED_FILE
-    )
 
-    logger.info("\nDLQ Retry complete!")
-    logger.info(f"Check merged results: {MERGED_FILE}")
+async def main():
+    """Main entry point for DLQ retry."""
+    parser = argparse.ArgumentParser(description="DLQ Retry for Failed Products")
+    parser.add_argument("--403-only", action="store_true", dest="only_403", help="Retry only 403 errors with curl_cffi")
+    args = parser.parse_args()
+
+    if args.only_403:
+        # Retry 403s with curl_cffi
+        logger.info("DLQ Level 2: Retry 403 errors with curl_cffi (TLS spoofing)")
+        logger.info("=" * 70)
+
+        input_file = OUTPUT_FILE  # Use previous retry results
+        output_file = project_root / "data/exports/retry_curlcffi_results.json"
+        merged_file = project_root / "data/exports/full_crawl_results_merged2.json"
+
+        results = retry_403_with_curlcffi(input_file, output_file)
+
+        if results:
+            logger.info("\nMerging original + DLQ + curl_cffi...")
+
+            # Load all
+            with open(INPUT_FILE, "r", encoding="utf-8") as f:
+                original = json.load(f)
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                dlq = json.load(f)
+
+            # Merge priority: curl_cffi > dlq > original
+            dlq_map = {r["product_id"]: r for r in dlq}
+            cffi_map = {r["product_id"]: r for r in results}
+
+            merged = []
+            for item in original:
+                pid = item["product_id"]
+                merged.append(cffi_map.get(pid) or dlq_map.get(pid) or item)
+
+            with open(merged_file, "w", encoding="utf-8") as f:
+                json.dump(merged, f, indent=2, ensure_ascii=False)
+
+            success = sum(1 for r in merged if r["status"] == "success")
+            logger.info(f"Final: {success}/{len(merged)} = {success/len(merged)*100:.1f}%")
+            logger.info(f"Saved: {merged_file}")
+
+    else:
+        # Normal retry with httpx
+        logger.info("Dead Letter Queue (DLQ) Retry for Failed Products")
+        logger.info("=" * 70)
+
+        retry_results = await retry_failed_products(
+            input_file=INPUT_FILE,
+            output_file=OUTPUT_FILE,
+            concurrency=DLQ_CONCURRENCY
+        )
+
+        if not retry_results:
+            logger.info("No products to retry. Exiting.")
+            return
+
+        logger.info("\nMerging retry results with original crawl...")
+        merge_results(
+            original_file=INPUT_FILE,
+            retry_file=OUTPUT_FILE,
+            output_file=MERGED_FILE
+        )
+
+        logger.info("\nDLQ Retry complete!")
+        logger.info(f"Check merged results: {MERGED_FILE}")
 
 
 if __name__ == "__main__":
