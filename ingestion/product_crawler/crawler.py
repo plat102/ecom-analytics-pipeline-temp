@@ -17,32 +17,23 @@ import json
 import random
 import sys
 import time
+from datetime import date
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Callable
 
-# Add project root
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
 import httpx
 from common.utils.logger import get_logger
-from ingestion.product_crawler.parsers import (
-    extract_react_data,
-    extract_product_fields,
-    extract_basic_fields_from_html,
-)
+
+# Import config
+from ingestion.product_crawler import config
+from ingestion.product_crawler.parsers import process_html_to_product
 from ingestion.product_crawler.utils import (
-    USER_AGENTS,
-    DELAY_MIN,
-    DELAY_MAX,
-    MAX_RETRIES,
-    BACKOFF_BASE,
-    CHECKPOINT_INTERVAL,
-    INPUT_FILE,
-    CHECKPOINT_FILE,
     save_checkpoint,
+    load_checkpoint,
+    get_processed_ids,
     get_browser_headers,
     clean_url,
+    summarize_results,
 )
 
 logger = get_logger(__name__)
@@ -68,7 +59,7 @@ async def fetch_html_async(
         Tuple of (html_content, status_code) or (None, status_code) on error
     """
     if user_agent is None:
-        user_agent = random.choice(USER_AGENTS)
+        user_agent = random.choice(config.USER_AGENTS)
 
     # Full browser headers to bypass anti-bot
     headers = {"User-Agent": user_agent, **get_browser_headers()}
@@ -128,7 +119,7 @@ async def fetch_product_async(
     retry_count = 0
 
     # Retry loop - avoids semaphore deadlock from recursion
-    while retry_count <= MAX_RETRIES:
+    while retry_count <= config.MAX_RETRIES:
         need_backoff = False
         backoff_time = 0
 
@@ -138,9 +129,9 @@ async def fetch_product_async(
             result["http_status"] = status_code
 
             # Handle retryable errors (403/429/503) -> Mark for backoff
-            if status_code in [403, 429, 503] and retry_count < MAX_RETRIES:
+            if status_code in [403, 429, 503] and retry_count < config.MAX_RETRIES:
                 retry_count += 1
-                backoff_time = BACKOFF_BASE ** retry_count
+                backoff_time = config.BACKOFF_BASE ** retry_count
                 need_backoff = True
 
                 # Special handling for 403: Switch to clean catalog URL (bypass WAF)
@@ -148,7 +139,7 @@ async def fetch_product_async(
                     catalog_url = f"https://www.glamira.com/catalog/product/view/id/{product_id}"
                     logger.info(
                         f"Product {product_id}: 403 blocked, "
-                        f"switching to catalog URL for retry {retry_count}/{MAX_RETRIES}"
+                        f"switching to catalog URL for retry {retry_count}/{config.MAX_RETRIES}"
                     )
                     url = catalog_url  # Reassign URL for next iteration
                     result["fallback_used"] = True
@@ -169,47 +160,18 @@ async def fetch_product_async(
             # Non-retryable error or max retries exceeded
             elif html is None:
                 if status_code in [403, 429, 503]:
-                    result["error_message"] = f"Rate limited/Forbidden after {MAX_RETRIES} attempts"
+                    result["error_message"] = f"Rate limited/Forbidden after {config.MAX_RETRIES} attempts"
                 else:
                     result["error_message"] = f"Failed to fetch HTML (HTTP {status_code})"
                 return result
 
             # Extract data (only if we have HTML and not flagged for backoff)
             if html and not need_backoff:
-                # Extract react_data
-                react_data = extract_react_data(html)
-
-                if react_data is None:
-                    # Try HTML fallback parser for edge cases
-                    # (discontinued products, old layouts, server-side rendered pages)
-                    basic_fields = extract_basic_fields_from_html(html)
-
-                    if basic_fields:
-                        result["status"] = "success"
-                        result.update(basic_fields)
-                        result["product_id"] = product_id
-                        logger.info(f"Product {product_id}: Recovered via HTML fallback parser")
-
-                        # Random delay
-                        delay = random.uniform(DELAY_MIN, DELAY_MAX)
-                        await asyncio.sleep(delay)
-                        return result
-                    else:
-                        # Both parsers failed
-                        result["status"] = "no_react_data"
-                        result["error_message"] = "react_data not found, HTML fallback also failed"
-                        return result
-
-                # Extract product fields from react_data
-                result["status"] = "success"
-                fields = extract_product_fields(react_data)
-                result.update(fields)
-
-                # Preserve input product_id (database ID is source of truth)
-                result["product_id"] = product_id
+                # Use unified HTML processor (DRY)
+                result = process_html_to_product(html, product_id, url)
 
                 # Random delay to mimic human behavior (inside semaphore to maintain rate limit)
-                delay = random.uniform(DELAY_MIN, DELAY_MAX)
+                delay = random.uniform(config.DELAY_MIN, config.DELAY_MAX)
                 await asyncio.sleep(delay)
 
                 return result
@@ -220,7 +182,7 @@ async def fetch_product_async(
             error_names = {403: "Forbidden", 429: "Rate limited", 503: "Server error"}
             logger.warning(
                 f"{error_names.get(status_code, 'Error')} ({status_code}) for product {product_id}, "
-                f"retry {retry_count}/{MAX_RETRIES} after {backoff_time}s"
+                f"retry {retry_count}/{config.MAX_RETRIES} after {backoff_time}s"
             )
             await asyncio.sleep(backoff_time)
 
@@ -283,7 +245,7 @@ async def crawl_products_async(
                 progress_callback(i, len(products))
 
             # Checkpoint every N products
-            if checkpoint_file and i % CHECKPOINT_INTERVAL == 0:
+            if checkpoint_file and i % config.CHECKPOINT_INTERVAL == 0:
                 save_checkpoint(checkpoint_file, results)
                 elapsed = time.time() - start_time
                 rate = i / elapsed
@@ -301,20 +263,26 @@ async def crawl_products_async(
 
 
 # ============================================================================
-# TEST MODE
+# UNIFIED CRAWL FUNCTION
 # ============================================================================
 
-async def test_mode_async(
-    count: int = 30,
-    concurrency: int = 20,
+async def run_crawl(
+    input_file: Path = None,
+    output_file: Path = None,
+    concurrency: int = None,
+    limit: Optional[int] = None,
+    resume: bool = False,
     checkpoint: bool = True
 ) -> int:
     """
-    Test mode: Crawl N products from CSV with progress tracking.
+    Unified crawl function for both test and full crawl modes.
 
     Args:
-        count: Number of products to test
-        concurrency: Max concurrent requests
+        input_file: CSV file with product_id and url columns (default: from config)
+        output_file: Output JSON file (default: deterministic based on mode/date)
+        concurrency: Max concurrent requests (default: from config based on mode)
+        limit: Number of products to crawl (None = all products for full crawl)
+        resume: Resume from checkpoint (skip already processed products)
         checkpoint: Enable checkpointing
 
     Returns:
@@ -322,29 +290,60 @@ async def test_mode_async(
     """
     import csv
 
+    # Defaults
+    if input_file is None:
+        input_file = config.INPUT_FILE
+
+    if concurrency is None:
+        concurrency = config.CONCURRENCY_TEST if limit else config.CONCURRENCY_FULL
+
+    # Determine mode
+    is_test = limit is not None
+    mode_name = f"TEST ({limit} products)" if is_test else "FULL CRAWL"
+
     # Load products from CSV
-    if not INPUT_FILE.exists():
-        logger.error(f"Input file not found: {INPUT_FILE}")
+    if not input_file.exists():
+        logger.error(f"Input file not found: {input_file}")
         return 1
 
-    logger.info(f"Loading {count} URLs from: {INPUT_FILE}")
+    logger.info(f"{mode_name}: Loading products from {input_file}")
 
     products = []
-    with open(INPUT_FILE, "r", encoding="utf-8") as f:
+    with open(input_file, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for i, row in enumerate(reader):
-            if i >= count:
+            if limit and i >= limit:
                 break
             products.append((row["product_id"], row["url"]))
 
-    logger.info(f"Testing {len(products)} products with {concurrency} concurrent requests")
+    # Handle resume mode
+    if resume:
+        checkpoint_file = config.CHECKPOINT_FILE if checkpoint else None
+        if checkpoint_file and checkpoint_file.exists():
+            logger.info("Resume mode: Loading checkpoint...")
+            previous_results = load_checkpoint(checkpoint_file)
+            processed_ids = get_processed_ids(previous_results)
+
+            # Filter out already processed products
+            products = [(pid, url) for pid, url in products if pid not in processed_ids]
+
+            logger.info(f"Resume: {len(processed_ids)} already processed, {len(products)} remaining")
+
+            if not products:
+                logger.info("All products already processed!")
+                return 0
+        else:
+            logger.warning("Resume mode requested but no checkpoint found, starting fresh")
+
+    logger.info(f"Crawling {len(products)} products with concurrency={concurrency}")
     logger.info("=" * 70)
 
     # Progress callback
     start_time = time.time()
+    progress_interval = 10 if is_test else 100
 
     def progress_callback(completed: int, total: int):
-        if completed % 10 == 0 or completed == 1:
+        if completed % progress_interval == 0 or completed == 1:
             elapsed = time.time() - start_time
             rate = completed / elapsed if elapsed > 0 else 0
             eta = (total - completed) / rate if rate > 0 else 0
@@ -356,7 +355,7 @@ async def test_mode_async(
             )
 
     # Crawl
-    checkpoint_file = CHECKPOINT_FILE if checkpoint else None
+    checkpoint_file = config.CHECKPOINT_FILE if checkpoint else None
     results = await crawl_products_async(
         products,
         concurrency=concurrency,
@@ -364,145 +363,56 @@ async def test_mode_async(
         checkpoint_file=checkpoint_file
     )
 
-    # Summary
+    # Calculate stats using helper
     total_time = time.time() - start_time
-    success_count = sum(1 for r in results if r["status"] == "success")
-    error_count = sum(1 for r in results if r["status"] == "error")
-    no_react_count = sum(1 for r in results if r["status"] == "no_react_data")
-    http_403 = sum(1 for r in results if r.get("http_status") == 403)
-    fallback_count = sum(1 for r in results if r.get("fallback_used"))
-
-    logger.info("\n" + "=" * 70)
-    logger.info("TEST SUMMARY")
-    logger.info("=" * 70)
-    logger.info(f"Total tested: {len(results)}")
-    logger.info(f"Success: {success_count} ({success_count/len(results)*100:.1f}%)")
-    logger.info(f"Errors: {error_count}")
-    logger.info(f"No react_data: {no_react_count}")
-    logger.info(f"HTTP 403: {http_403}")
-    logger.info(f"HTTP 404 (fallback used): {fallback_count}")
-    logger.info(f"Total time: {total_time/60:.2f} minutes")
-    logger.info(f"Average rate: {len(results)/total_time:.2f} products/second")
-
-    # Projected time for full crawl
-    total_products = 19417
-    projected_time = total_products / (len(results) / total_time)
-    logger.info(f"\nProjected time for {total_products} products:")
-    logger.info(f"  ~{projected_time/3600:.1f} hours ({projected_time/60:.0f} minutes)")
-    logger.info("=" * 70)
-
-    # Save results
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent
-    output_file = project_root / "data" / "exports" / f"test_{count}_async_results.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    logger.info(f"\nResults saved to: {output_file}")
-
-    # Exit code based on success rate
-    success_rate = success_count / len(results) * 100
-    if success_rate >= 90:
-        logger.info(f"\nTEST PASSED: {success_rate:.1f}% success rate")
-        return 0
-    elif success_rate >= 80:
-        logger.warning(f"\nTEST WARNING: {success_rate:.1f}% success rate")
-        return 1
-    else:
-        logger.error(f"\nTEST FAILED: {success_rate:.1f}% success rate")
-        return 2
-
-
-async def full_crawl_async(concurrency: int = 15) -> int:
-    """
-    Full crawl mode: Crawl ALL products from CSV.
-
-    Args:
-        concurrency: Max concurrent requests (default: 15 for production safety)
-
-    Returns:
-        Exit code (0=success, 1=warning, 2=failure)
-    """
-    import csv
-
-    # Load ALL products from CSV
-    if not INPUT_FILE.exists():
-        logger.error(f"Input file not found: {INPUT_FILE}")
-        return 1
-
-    logger.info(f"Loading ALL products from: {INPUT_FILE}")
-
-    products = []
-    with open(INPUT_FILE, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            products.append((row["product_id"], row["url"]))
-
-    total_count = len(products)
-    logger.info(f"Loaded {total_count} products")
-    logger.info("=" * 70)
-
-    # Progress callback
-    start_time = time.time()
-
-    def progress_callback(completed: int, total: int):
-        if completed % 100 == 0 or completed == 1:
-            elapsed = time.time() - start_time
-            rate = completed / elapsed if elapsed > 0 else 0
-            eta = (total - completed) / rate if rate > 0 else 0
-            logger.info(
-                f"[{completed}/{total}] "
-                f"Elapsed: {elapsed/60:.1f}min | "
-                f"Rate: {rate:.2f} prod/s | "
-                f"ETA: {eta/60:.1f}min"
-            )
-
-    # Crawl with checkpointing
-    results = await crawl_products_async(
-        products,
-        concurrency=concurrency,
-        progress_callback=progress_callback,
-        checkpoint_file=CHECKPOINT_FILE
-    )
+    stats = summarize_results(results)
 
     # Summary
-    total_time = time.time() - start_time
-    success_count = sum(1 for r in results if r["status"] == "success")
-    error_count = sum(1 for r in results if r["status"] == "error")
-    no_react_count = sum(1 for r in results if r["status"] == "no_react_data")
-    http_403 = sum(1 for r in results if r.get("http_status") == 403)
-    fallback_count = sum(1 for r in results if r.get("fallback_used"))
-
     logger.info("\n" + "=" * 70)
-    logger.info("FULL CRAWL SUMMARY")
+    logger.info(f"{mode_name} SUMMARY")
     logger.info("=" * 70)
-    logger.info(f"Total crawled: {len(results)}")
-    logger.info(f"Success: {success_count} ({success_count/len(results)*100:.1f}%)")
-    logger.info(f"Errors: {error_count}")
-    logger.info(f"No react_data: {no_react_count}")
-    logger.info(f"HTTP 403: {http_403}")
-    logger.info(f"HTTP 404 (fallback used): {fallback_count}")
+    logger.info(f"Total crawled: {stats['total']}")
+    logger.info(f"Success: {stats['success']} ({stats['success_rate']:.1f}%)")
+    logger.info(f"Errors: {stats['errors']}")
+    logger.info(f"No react_data: {stats['no_react_data']}")
+    logger.info(f"HTTP 403: {stats['http_403']}")
+    logger.info(f"HTTP 404 (fallback used): {stats['fallback_used']}")
     logger.info(f"Total time: {total_time/60:.2f} minutes ({total_time/3600:.2f} hours)")
-    logger.info(f"Average rate: {len(results)/total_time:.2f} products/second")
+    logger.info(f"Average rate: {stats['total']/total_time:.2f} products/second")
+
+    # Projection for test mode
+    if is_test and stats['total'] > 0:
+        total_products = 19417  # Approximate total from full dataset
+        projected_time = total_products / (stats['total'] / total_time)
+        logger.info(f"\nProjected time for {total_products} products:")
+        logger.info(f"  ~{projected_time/3600:.1f} hours ({projected_time/60:.0f} minutes)")
+
     logger.info("=" * 70)
 
+    # Determine output file (deterministic)
+    if output_file is None:
+        if is_test:
+            # Test mode: include date for traceability
+            today = date.today().strftime("%Y%m%d")
+            output_file = config.OUTPUT_DIR / f"test_{limit}_results_{today}.json"
+        else:
+            # Full crawl: fixed name (overwrite)
+            output_file = config.OUTPUT_DIR / "full_crawl_results.json"
+
     # Save results
-    from pathlib import Path
-    project_root = Path(__file__).parent.parent.parent
-    output_file = project_root / "data" / "exports" / "full_crawl_results.json"
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     logger.info(f"\nResults saved to: {output_file}")
 
     # Exit code based on success rate
-    success_rate = success_count / len(results) * 100
-    if success_rate >= 90:
-        logger.info(f"\nCRAWL PASSED: {success_rate:.1f}% success rate")
+    if stats['success_rate'] >= 90:
+        logger.info(f"\nCRAWL PASSED: {stats['success_rate']:.1f}% success rate")
         return 0
-    elif success_rate >= 80:
-        logger.warning(f"\nCRAWL WARNING: {success_rate:.1f}% success rate")
+    elif stats['success_rate'] >= 80:
+        logger.warning(f"\nCRAWL WARNING: {stats['success_rate']:.1f}% success rate")
         return 1
     else:
-        logger.error(f"\nCRAWL FAILED: {success_rate:.1f}% success rate")
+        logger.error(f"\nCRAWL FAILED: {stats['success_rate']:.1f}% success rate")
         return 2
 
 
@@ -537,34 +447,48 @@ def main():
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Resume from checkpoint (not yet implemented)"
+        help="Resume from checkpoint (skip already processed products)"
     )
     parser.add_argument(
         "--no-checkpoint",
         action="store_true",
-        help="Disable checkpointing (only for test mode)"
+        help="Disable checkpointing"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        help="Custom output file path"
     )
 
     args = parser.parse_args()
+
+    # Parse output file
+    output_file = Path(args.output) if args.output else None
 
     # Determine mode
     if args.test is not None:
         # Test mode
         count = args.test if args.test > 0 else 30
-        concurrency = args.concurrency if args.concurrency else 20
         checkpoint = not args.no_checkpoint
-        logger.info(f"Test mode: {count} products, concurrency={concurrency}")
-        exit_code = asyncio.run(test_mode_async(count, concurrency, checkpoint))
+        logger.info(f"Test mode: {count} products, concurrency={args.concurrency or 'auto'}")
+        exit_code = asyncio.run(run_crawl(
+            limit=count,
+            concurrency=args.concurrency,
+            resume=args.resume,
+            checkpoint=checkpoint,
+            output_file=output_file
+        ))
         sys.exit(exit_code)
-    elif args.resume:
-        # Resume from checkpoint (not yet implemented)
-        logger.error("Resume mode not yet implemented")
-        sys.exit(1)
     else:
         # Full crawl mode (default)
-        concurrency = args.concurrency if args.concurrency else 15
-        logger.info(f"Full crawl mode: ALL products, concurrency={concurrency}")
-        exit_code = asyncio.run(full_crawl_async(concurrency))
+        logger.info(f"Full crawl mode: ALL products, concurrency={args.concurrency or 'auto'}")
+        exit_code = asyncio.run(run_crawl(
+            limit=None,
+            concurrency=args.concurrency,
+            resume=args.resume,
+            checkpoint=not args.no_checkpoint,
+            output_file=output_file
+        ))
         sys.exit(exit_code)
 
 

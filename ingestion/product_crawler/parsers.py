@@ -255,3 +255,55 @@ def extract_product_fields(react_data: dict) -> dict:
                 result['is_solid'] = massiv_attr.get('value')
 
     return result
+
+
+def process_html_to_product(html: str, product_id: str, url: str) -> dict:
+    """
+    Unified HTML processing: parse HTML and extract product data.
+
+    Facade function that orchestrates the entire parsing workflow:
+    1. Try react_data extraction (primary method)
+    2. Fallback to JSON-LD parser (for edge cases)
+
+    This is the ONLY function that external modules (crawler, retry) should use.
+
+    Args:
+        html: Raw HTML content
+        product_id: Product ID (database source of truth)
+        url: Product URL
+
+    Returns:
+        dict: Product data with status ("success", "no_react_data", or "error")
+    """
+    result = {
+        "product_id": product_id,
+        "url": url,
+        "status": "error",
+        "error_message": None
+    }
+
+    # Try react_data extraction (primary method)
+    react_data = extract_react_data(html)
+
+    if react_data:
+        result["status"] = "success"
+        fields = extract_product_fields(react_data)
+        result.update(fields)
+        # Preserve input product_id (database ID is source of truth)
+        result["product_id"] = product_id
+        return result
+
+    # Try JSON-LD fallback parser (for edge cases)
+    basic_fields = extract_basic_fields_from_html(html)
+
+    if basic_fields:
+        result["status"] = "success"
+        result.update(basic_fields)
+        result["product_id"] = product_id
+        logger.info(f"Product {product_id}: Recovered via HTML fallback parser")
+        return result
+
+    # Both parsers failed
+    result["status"] = "no_react_data"
+    result["error_message"] = "react_data not found, HTML fallback also failed"
+    return result

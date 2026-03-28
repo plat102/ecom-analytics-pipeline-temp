@@ -1,69 +1,69 @@
 """
 Shared utilities for product crawling.
 
-- Constants (User-Agents, rate limiting configs)
+- Data processing helpers
 - Checkpoint management
-- Helper functions
+- URL cleaning and headers
 """
 
 import json
 from datetime import datetime, UTC
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional
 
 from common.utils.logger import get_logger
+from ingestion.product_crawler.config import TRACKING_PARAMS
 
 logger = get_logger(__name__)
 
+
 # ============================================================================
-# CONSTANTS
+# DATA PROCESSING HELPERS
 # ============================================================================
 
-# User-Agent pool (12 browsers for rotation)
-USER_AGENTS = [
-    # Chrome on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    # Chrome on Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    # Firefox on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-    # Firefox on Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:120.0) Gecko/20100101 Firefox/120.0",
-    # Safari on Mac
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
-    # Edge on Windows
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
-]
+def summarize_results(results: List[Dict]) -> Dict:
+    """
+    Calculate summary statistics for crawl results.
 
-# Rate limiting
-DELAY_MIN = 0.5  # Minimum delay between requests (seconds)
-DELAY_MAX = 1.5  # Maximum delay between requests (seconds)
+    DRY helper to avoid duplicate stats calculation across test/full/retry modes.
 
-# Retry settings
-MAX_RETRIES = 3  # Max retries for 429/503 errors
-BACKOFF_BASE = 2  # Exponential backoff base (seconds)
+    Args:
+        results: List of result dicts from crawler
 
-# Checkpoint settings
-CHECKPOINT_INTERVAL = 100  # Save checkpoint every N products
+    Returns:
+        Dict with summary statistics:
+        - total: total products
+        - success: successful extractions
+        - success_rate: success percentage
+        - errors: error count
+        - no_react_data: products without react_data
+        - http_403: HTTP 403 count
+        - fallback_used: count using fallback URL
+    """
+    total = len(results)
 
-# File paths
-project_root = Path(__file__).parent.parent.parent
-INPUT_FILE = project_root / "data" / "exports" / "product_url_map.csv"
-CHECKPOINT_FILE = project_root / "data" / "exports" / "crawl_checkpoint.json"
+    if total == 0:
+        return {
+            "total": 0,
+            "success": 0,
+            "success_rate": 0.0,
+            "errors": 0,
+            "no_react_data": 0,
+            "http_403": 0,
+            "fallback_used": 0
+        }
 
-# URL Cleaning - Tracking parameters to remove
-TRACKING_PARAMS = [
-    'fbclid', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
-    'itm_source', 'itm_medium', 'itm_campaign', 'itm_content',
-    'gclid', 'gclsrc', '_ga', 'mc_cid', 'mc_eid',
-    'msclkid', 'zanpid', 'aff_id', 'ref', 'source'
-]
+    success = sum(1 for r in results if r.get("status") == "success")
+
+    return {
+        "total": total,
+        "success": success,
+        "success_rate": (success / total * 100) if total > 0 else 0,
+        "errors": sum(1 for r in results if r.get("status") == "error"),
+        "no_react_data": sum(1 for r in results if r.get("status") == "no_react_data"),
+        "http_403": sum(1 for r in results if r.get("http_status") == 403),
+        "fallback_used": sum(1 for r in results if r.get("fallback_used"))
+    }
 
 
 # ============================================================================
