@@ -50,15 +50,15 @@ async def retry_failed_products(
     concurrency: int = None
 ) -> List[Dict]:
     """
-    Retry failed products from previous crawl using httpx.
+    Retry failed products and return merged results.
 
     Args:
-        input_file: Previous crawl results JSON
-        output_file: Output file for retry results
+        input_file: Base crawl results JSON (to retry from and merge into)
+        output_file: Output merged file with timestamp
         concurrency: Max concurrent requests (default: from config)
 
     Returns:
-        List of retry results
+        List of merged results (all products with retried ones replaced)
     """
     if concurrency is None:
         concurrency = config.CONCURRENCY_DLQ
@@ -137,12 +137,31 @@ async def retry_failed_products(
     logger.info(f"Average rate: {stats['total']/total_time:.2f} products/second")
     logger.info("=" * 70)
 
-    # Save retry results
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    logger.info(f"\nRetry results saved to: {output_file}")
+    # Merge retry results back into all_results
+    logger.info("\nMerging retry results...")
+    retry_lookup = {str(r["product_id"]): r for r in results}
 
-    return results
+    merged = []
+    replaced_count = 0
+    for item in all_results:
+        pid = str(item["product_id"])
+        if pid in retry_lookup:
+            merged.append(retry_lookup[pid])
+            replaced_count += 1
+        else:
+            merged.append(item)
+
+    # Final stats
+    final_stats = summarize_results(merged)
+    logger.info(f"Replaced {replaced_count} products with retry results")
+    logger.info(f"Final success: {final_stats['success']}/{final_stats['total']} ({final_stats['success_rate']:.1f}%)")
+
+    # Save merged results
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(merged, f, indent=2, ensure_ascii=False)
+    logger.info(f"\nMerged results saved to: {output_file}")
+
+    return merged
 
 
 # ============================================================================
@@ -155,17 +174,17 @@ def retry_403_with_curlcffi(
     concurrency: int = 3
 ) -> List[Dict]:
     """
-    Retry only 403 errors using curl_cffi (TLS fingerprint spoofing).
+    Retry only 403 errors using curl_cffi and return merged results.
 
     curl_cffi can bypass WAF detection by impersonating real browser TLS signatures.
 
     Args:
-        input_file: Previous retry results (with 403 failures)
-        output_file: Output file for curl_cffi results
+        input_file: Base results (to retry 403s from and merge into)
+        output_file: Output merged file with timestamp
         concurrency: Max workers (default: 3 for safety)
 
     Returns:
-        List of results
+        List of merged results (all products with retried 403s replaced)
     """
     try:
         from curl_cffi import requests as curl_requests
@@ -173,13 +192,13 @@ def retry_403_with_curlcffi(
         logger.error("curl_cffi not installed! Install with: poetry add curl_cffi")
         sys.exit(1)
 
-    # Load previous results
+    # Load base results
     with open(input_file, "r", encoding="utf-8") as f:
-        previous = json.load(f)
+        all_results = json.load(f)
 
     # Filter only 403 errors
     failed_403 = [
-        r for r in previous
+        r for r in all_results
         if r.get("status") == "error" and r.get("http_status") == 403
     ]
 
@@ -255,12 +274,35 @@ def retry_403_with_curlcffi(
     logger.info(f"Recovered: {stats['success']} ({stats['success_rate']:.1f}%)")
     logger.info("=" * 70)
 
-    # Save results
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    logger.info(f"\nResults saved to: {output_file}")
+    # Merge successful curl_cffi results back into all_results
+    logger.info("\nMerging curl_cffi results...")
+    cffi_lookup = {
+        str(r["product_id"]): r
+        for r in results
+        if r.get("status") == "success"  # Only use successful retries
+    }
 
-    return results
+    merged = []
+    replaced_count = 0
+    for item in all_results:
+        pid = str(item["product_id"])
+        if pid in cffi_lookup:
+            merged.append(cffi_lookup[pid])
+            replaced_count += 1
+        else:
+            merged.append(item)
+
+    # Final stats
+    final_stats = summarize_results(merged)
+    logger.info(f"Replaced {replaced_count} products with curl_cffi results")
+    logger.info(f"Final success: {final_stats['success']}/{final_stats['total']} ({final_stats['success_rate']:.1f}%)")
+
+    # Save merged results
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(merged, f, indent=2, ensure_ascii=False)
+    logger.info(f"\nMerged results saved to: {output_file}")
+
+    return merged
 
 
 # ============================================================================

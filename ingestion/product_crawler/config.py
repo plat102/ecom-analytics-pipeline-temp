@@ -20,17 +20,10 @@ OUTPUT_DIR = settings.DATA_EXPORTS_DIR
 # Default input/output files
 INPUT_FILE = OUTPUT_DIR / "product_url_map.csv"
 CHECKPOINT_FILE = OUTPUT_DIR / "crawl_checkpoint.json"
-
-# Crawl output files
 FULL_CRAWL_OUTPUT = OUTPUT_DIR / "full_crawl_results.json"
 
-# Retry (DLQ) output files
-RETRY_OUTPUT = OUTPUT_DIR / "retry_failed_results.json"
-RETRY_CURLCFFI_OUTPUT = OUTPUT_DIR / "retry_curlcffi_results.json"
-
-# Merged results (after retry)
-MERGED_OUTPUT = OUTPUT_DIR / "full_crawl_results_merged.json"
-MERGED_OUTPUT_LEVEL2 = OUTPUT_DIR / "full_crawl_results_merged2.json"  # After curl_cffi retry
+# Note: Retry outputs use timestamp-based naming (e.g., retry_20260329_143022.json)
+# to avoid overwriting and support unlimited retry iterations
 
 # ============================================================================
 # CONCURRENCY SETTINGS

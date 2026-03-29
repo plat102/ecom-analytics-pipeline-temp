@@ -5,6 +5,7 @@ Unified command-line interface for the complete product crawling pipeline:
 1. Extract URLs from MongoDB
 2. Crawl products (test or full mode)
 3. Retry failed products (DLQ)
+4. Upload results to GCS
 
 Usage:
     # Step 1: Extract product URLs from MongoDB
@@ -16,18 +17,41 @@ Usage:
     # Step 3: Retry failed products
     python -m ingestion.product_crawler retry [--403-only] [--analyze]
 
+    # Step 4: Upload to GCS
+    python -m ingestion.product_crawler upload --file results.json
+
     # Run full pipeline
-    python -m ingestion.product_crawler pipeline
+    python -m ingestion.product_crawler pipeline [--upload]
+
+Note: retry module can also run standalone:
+    python -m ingestion.product_crawler.retry
 """
 
 import sys
 import argparse
 import asyncio
 from pathlib import Path
+from datetime import datetime
 
 from common.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def generate_retry_filename(prefix: str = "retry") -> Path:
+    """
+    Generate timestamped filename for retry output.
+
+    Args:
+        prefix: Filename prefix (e.g., "retry" or "retry_403")
+
+    Returns:
+        Path: Full path with timestamp (e.g., data/exports/retry_20260329_143022.json)
+    """
+    from ingestion.product_crawler import config
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{prefix}_{timestamp}.json"
+    return config.OUTPUT_DIR / filename
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -49,15 +73,14 @@ Examples:
 
   # Retry failed products
   python -m ingestion.product_crawler retry
-
-  # Retry 403 errors with curl_cffi
   python -m ingestion.product_crawler retry --403-only
-
-  # Analyze failures
   python -m ingestion.product_crawler retry --analyze
 
+  # Upload results to GCS
+  python -m ingestion.product_crawler upload --file data/exports/full_crawl_results.json
+
   # Run complete pipeline
-  python -m ingestion.product_crawler pipeline
+  python -m ingestion.product_crawler pipeline --upload
         """
     )
 
@@ -234,21 +257,19 @@ async def run_pipeline(args):
     # Step 3: Retry (optional)
     if not args.skip_retry:
         logger.info("\n>>> STEP 3: RETRY FAILED PRODUCTS <<<")
-        from ingestion.product_crawler.retry import retry_failed_products, merge_results
+        from ingestion.product_crawler.retry import retry_failed_products
 
-        retry_results = await retry_failed_products(
-            config.FULL_CRAWL_OUTPUT,
-            config.RETRY_OUTPUT
+        # Generate timestamped retry output
+        retry_output = generate_retry_filename("retry")
+
+        merged_results = await retry_failed_products(
+            input_file=config.FULL_CRAWL_OUTPUT,
+            output_file=retry_output
         )
 
-        if retry_results:
-            merge_results(
-                config.FULL_CRAWL_OUTPUT,
-                config.RETRY_OUTPUT,
-                config.MERGED_OUTPUT
-            )
-            logger.info(f"Final results: {config.MERGED_OUTPUT}")
-            final_output_file = config.MERGED_OUTPUT  # Use merged file for upload
+        if merged_results:
+            logger.info(f"Final results: {retry_output}")
+            final_output_file = retry_output  # Use merged file for upload
     else:
         logger.info("\n>>> STEP 3: SKIPPED (no retry) <<<")
 
@@ -339,8 +360,67 @@ def main():
         sys.exit(exit_code)
 
     elif args.command == "retry":
-        from ingestion.product_crawler.retry import main as retry_main
-        asyncio.run(retry_main())
+        from ingestion.product_crawler.retry import (
+            retry_failed_products,
+            retry_403_with_curlcffi,
+            analyze_failures
+        )
+        from ingestion.product_crawler import config
+
+        # Parse input path (default: original crawl results)
+        input_file = Path(args.input) if args.input else config.FULL_CRAWL_OUTPUT
+
+        # Handle analyze mode
+        if args.analyze:
+            logger.info("FAILURE ANALYSIS MODE")
+            logger.info("=" * 70)
+            analyze_failures(input_file)
+            sys.exit(0)
+
+        # Handle 403-only mode with curl_cffi
+        if args.only_403:
+            logger.info("Retry 403 errors with curl_cffi (TLS spoofing)")
+            logger.info("=" * 70)
+
+            # Generate timestamped output
+            output_file = Path(args.output) if args.output else generate_retry_filename("retry_403")
+
+            logger.info(f"Input: {input_file}")
+            logger.info(f"Output: {output_file}")
+            logger.info("=" * 70)
+
+            merged_results = retry_403_with_curlcffi(input_file, output_file)
+
+            if not merged_results:
+                logger.info("No 403 errors to retry. Exiting.")
+                sys.exit(0)
+
+            logger.info("\nRetry complete!")
+            logger.info(f"Merged results saved to: {output_file}")
+            sys.exit(0)
+
+        # Normal retry with httpx
+        logger.info("Dead Letter Queue (DLQ) Retry for Failed Products")
+        logger.info("=" * 70)
+
+        # Generate timestamped output
+        output_file = Path(args.output) if args.output else generate_retry_filename("retry")
+
+        logger.info(f"Input: {input_file}")
+        logger.info(f"Output: {output_file}")
+        logger.info("=" * 70)
+
+        merged_results = asyncio.run(retry_failed_products(
+            input_file=input_file,
+            output_file=output_file
+        ))
+
+        if not merged_results:
+            logger.info("No products to retry. Exiting.")
+            sys.exit(0)
+
+        logger.info("\nDLQ Retry complete!")
+        logger.info(f"Merged results saved to: {output_file}")
 
     elif args.command == "pipeline":
         asyncio.run(run_pipeline(args))

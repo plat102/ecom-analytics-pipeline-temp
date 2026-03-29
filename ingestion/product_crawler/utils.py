@@ -25,8 +25,6 @@ def summarize_results(results: List[Dict]) -> Dict:
     """
     Calculate summary statistics for crawl results.
 
-    DRY helper to avoid duplicate stats calculation across test/full/retry modes.
-
     Args:
         results: List of result dicts from crawler
 
