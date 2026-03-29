@@ -220,6 +220,8 @@ def retry_403_with_curlcffi(
         # Use catalog URL (stable endpoint, no geo-blocking)
         catalog_url = f"https://www.glamira.com/catalog/product/view/id/{product_id}"
 
+        logger.debug(f"Product {product_id}: Fetching with curl_cffi (catalog URL)")
+
         result = {
             "product_id": product_id,
             "url": original_url,  # Keep original URL for reference
@@ -239,6 +241,7 @@ def retry_403_with_curlcffi(
 
             if resp.status_code != 200:
                 result["error_message"] = f"HTTP {resp.status_code}"
+                logger.warning(f"Product {product_id}: HTTP {resp.status_code} from catalog URL")
                 return result
 
             # Use unified HTML processor (DRY)
@@ -246,10 +249,17 @@ def retry_403_with_curlcffi(
             result = process_html_to_product(html, product_id, original_url)
             result["tool"] = "curl_cffi"  # Mark tool used
             result["fallback_used"] = True  # Mark catalog URL usage
+
+            if result.get("status") == "success":
+                logger.info(f"Product {product_id}: Success")
+            else:
+                logger.warning(f"Product {product_id}: {result.get('status', 'unknown')} - {result.get('error_message', 'N/A')[:50]}")
+
             return result
 
         except Exception as e:
             result["error_message"] = str(e)[:100]
+            logger.error(f"Product {product_id}: Exception - {str(e)[:50]}")
             return result
 
     # Process with threading
