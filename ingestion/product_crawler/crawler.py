@@ -170,6 +170,24 @@ async def fetch_product_async(
                 # Use unified HTML processor (DRY)
                 result = process_html_to_product(html, product_id, url)
 
+                # Fallback for no_react_data: try catalog URL (category/listing pages)
+                if result.get("status") == "no_react_data" and not result.get("fallback_used"):
+                    catalog_url = f"https://www.glamira.com/catalog/product/view/id/{product_id}"
+                    logger.info(f"Product {product_id}: no_react_data, trying catalog URL")
+
+                    html_fallback, status_fallback = await fetch_html_async(client, catalog_url)
+
+                    if html_fallback and status_fallback == 200:
+                        result = process_html_to_product(html_fallback, product_id, catalog_url)
+                        result["fallback_used"] = True
+
+                        if result.get("status") == "success":
+                            logger.info(f"Product {product_id}: ✓ Recovered via catalog URL")
+                        else:
+                            logger.warning(f"Product {product_id}: Catalog URL also returned no_react_data")
+                    else:
+                        logger.warning(f"Product {product_id}: Catalog URL fetch failed (HTTP {status_fallback})")
+
                 # Random delay to mimic human behavior (inside semaphore to maintain rate limit)
                 delay = random.uniform(config.DELAY_MIN, config.DELAY_MAX)
                 await asyncio.sleep(delay)
