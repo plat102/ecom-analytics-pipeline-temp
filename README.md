@@ -99,8 +99,10 @@ poetry run python ingestion/product_crawler/extract_product_urls.py
 poetry run python ingestion/product_crawler/crawl_products_parallel.py --workers 5
 ```
 
-Output: `data/exports/product_names.csv`
-
+Output: 
+- Product names only: `data/exports/product_names.csv`
+- Product data
+  - Sample: 
 
 ---
 
