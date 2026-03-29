@@ -73,8 +73,8 @@ async def retry_failed_products(
 
     logger.info(f"Loaded {len(all_results)} products from previous crawl")
 
-    # Extract failed products
-    failed = [r for r in all_results if r.get("status") == "error"]
+    # Extract failed products (include both "error" and "no_react_data")
+    failed = [r for r in all_results if r.get("status") in ["error", "no_react_data"]]
     logger.info(f"Found {len(failed)} failed products to retry")
 
     if not failed:
@@ -401,7 +401,7 @@ def analyze_failures(input_file: Path) -> None:
     with open(input_file, "r", encoding="utf-8") as f:
         results = json.load(f)
 
-    failed = [r for r in results if r.get("status") == "error"]
+    failed = [r for r in results if r.get("status") in ["error", "no_react_data"]]
 
     if not failed:
         logger.info("No failures to analyze!")
