@@ -33,6 +33,9 @@ DATA_RAW_DIR = DATA_DIR / 'raw'
 DATA_PROCESSED_DIR = DATA_DIR / 'processed'
 DATA_EXPORTS_DIR = DATA_DIR / 'exports'
 
+# Google Cloud Storage Configuration
+GCS_BUCKET = os.getenv('GCS_BUCKET', 'raw_glamira')
+
 # Logging Configuration
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'

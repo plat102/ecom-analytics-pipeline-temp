@@ -103,8 +103,8 @@ TRACKING_PARAMS = [
 # GOOGLE CLOUD STORAGE SETTINGS
 # ============================================================================
 
-# GCS bucket name (should be configured via environment variable on server)
-GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "ecom-analytics-data-lake")
+# GCS bucket name (inherit from base settings)
+GCS_BUCKET = settings.GCS_BUCKET
 
 # Destination prefix on GCS (Data Lake path structure)
 # Format: raw/glamira/products/ -> organized by source/domain/data_type
