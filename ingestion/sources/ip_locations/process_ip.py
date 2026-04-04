@@ -112,32 +112,35 @@ def process_ips_with_geolocation(
     logger.info(f"Inserting results into MongoDB collection: "
                 f"{mongodb_collection}")
 
-    mongo_client = get_mongodb_client()
-    collection = mongo_client.db[mongodb_collection]
+    mongo_client = None
+    try:
+        mongo_client = get_mongodb_client()
+        collection = mongo_client.db[mongodb_collection]
 
-    # Drop existing collection if exists (MVP - recreate each time)
-    if mongodb_collection in mongo_client.db.list_collection_names():
-        logger.info(f"Dropping existing collection: {mongodb_collection}")
-        collection.drop()
+        # Drop existing collection if exists (MVP - recreate each time)
+        if mongodb_collection in mongo_client.db.list_collection_names():
+            logger.info(f"Dropping existing collection: {mongodb_collection}")
+            collection.drop()
 
-    # Batch insert
-    total_inserted = 0
-    for i in range(0, len(results), batch_size):
-        batch = results[i:i + batch_size]
-        collection.insert_many(batch)
-        total_inserted += len(batch)
+        # Batch insert
+        total_inserted = 0
+        for i in range(0, len(results), batch_size):
+            batch = results[i:i + batch_size]
+            collection.insert_many(batch)
+            total_inserted += len(batch)
 
-        if (i // batch_size + 1) % 10 == 0:
-            logger.info(f"Inserted {total_inserted:,} / {len(results):,} "
-                        f"documents")
+            if (i // batch_size + 1) % 10 == 0:
+                logger.info(f"Inserted {total_inserted:,} / {len(results):,} "
+                            f"documents")
 
-    logger.info(f"MongoDB insert complete: {total_inserted:,} documents")
+        logger.info(f"MongoDB insert complete: {total_inserted:,} documents")
 
-    # Create index on ip field for fast lookups
-    logger.info("Creating index on 'ip' field...")
-    collection.create_index("ip", unique=True)
-
-    mongo_client.close()
+        # Create index on ip field for fast lookups
+        logger.info("Creating index on 'ip' field...")
+        collection.create_index("ip", unique=True)
+    finally:
+        if mongo_client:
+            mongo_client.close()
 
     logger.info("=" * 60)
     logger.info("Processing complete!")

@@ -29,6 +29,7 @@ def extract_unique_ips(output_file='ip_list.txt', limit=None):
     logger.info("Extracting Unique IP Addresses from MongoDB")
     logger.info("=" * 60)
 
+    mongo_client = None
     try:
         # Connect to MongoDB
         mongo_client = get_mongodb_client()
@@ -71,7 +72,8 @@ def extract_unique_ips(output_file='ip_list.txt', limit=None):
         logger.error(f"Error extracting IPs: {e}")
         raise
     finally:
-        mongo_client.close()
+        if mongo_client:
+            mongo_client.close()
 
 
 def main():
