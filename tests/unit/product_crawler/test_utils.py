@@ -4,7 +4,7 @@ Unit tests for utils.py - Utility functions.
 These tests validate helper functions without external dependencies.
 """
 
-from ingestion.product_crawler.utils import (
+from ingestion.sources.products.utils import (
     clean_url,
     summarize_results,
     get_browser_headers,

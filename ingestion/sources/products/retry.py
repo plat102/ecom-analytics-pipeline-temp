@@ -9,13 +9,13 @@ Features:
 
 Usage:
     # Standard retry with httpx
-    python -m ingestion.product_crawler.retry
+    python -m ingestion.sources.products.retry
 
     # Retry only 403 errors with curl_cffi
-    python -m ingestion.product_crawler.retry --403-only
+    python -m ingestion.sources.products.retry --403-only
 
     # Analyze failures
-    python -m ingestion.product_crawler.retry --analyze
+    python -m ingestion.sources.products.retry --analyze
 """
 
 import asyncio
@@ -28,10 +28,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter
 
 from common.utils.logger import get_logger
-from ingestion.product_crawler import config
-from ingestion.product_crawler.crawler import crawl_products_async
-from ingestion.product_crawler.parsers import process_html_to_product
-from ingestion.product_crawler.utils import (
+from ingestion.sources.products import config
+from ingestion.sources.products.crawler import crawl_products_async
+from ingestion.sources.products.parsers import process_html_to_product
+from ingestion.sources.products.utils import (
     clean_url,
     get_browser_headers,
     summarize_results,

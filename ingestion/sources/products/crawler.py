@@ -25,9 +25,9 @@ import httpx
 from common.utils.logger import get_logger
 
 # Import config
-from ingestion.product_crawler import config
-from ingestion.product_crawler.parsers import process_html_to_product
-from ingestion.product_crawler.utils import (
+from ingestion.sources.products import config
+from ingestion.sources.products.parsers import process_html_to_product
+from ingestion.sources.products.utils import (
     save_checkpoint,
     load_checkpoint,
     get_processed_ids,

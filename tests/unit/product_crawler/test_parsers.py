@@ -5,7 +5,7 @@ These tests validate the core parsing logic without any external dependencies.
 """
 
 import pytest
-from ingestion.product_crawler.parsers import extract_react_data
+from ingestion.sources.products.parsers import extract_react_data
 
 
 class TestExtractReactData:

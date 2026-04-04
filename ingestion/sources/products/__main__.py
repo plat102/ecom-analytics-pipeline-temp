@@ -9,22 +9,22 @@ Unified command-line interface for the complete product crawling pipeline:
 
 Usage:
     # Step 1: Extract product URLs from MongoDB
-    python -m ingestion.product_crawler extract [--output FILE]
+    python -m ingestion.sources.products extract [--output FILE]
 
     # Step 2: Crawl products
-    python -m ingestion.product_crawler crawl [--test N] [--resume] [--concurrency N]
+    python -m ingestion.sources.products crawl [--test N] [--resume] [--concurrency N]
 
     # Step 3: Retry failed products
-    python -m ingestion.product_crawler retry [--403-only] [--analyze]
+    python -m ingestion.sources.products retry [--403-only] [--analyze]
 
     # Step 4: Upload to GCS
-    python -m ingestion.product_crawler upload --file results.json
+    python -m ingestion.sources.products upload --file results.json
 
     # Run full pipeline
-    python -m ingestion.product_crawler pipeline [--upload]
+    python -m ingestion.sources.products pipeline [--upload]
 
 Note: retry module can also run standalone:
-    python -m ingestion.product_crawler.retry
+    python -m ingestion.sources.products.retry
 """
 
 import sys
@@ -48,7 +48,7 @@ def generate_retry_filename(prefix: str = "retry") -> Path:
     Returns:
         Path: Full path with timestamp (e.g., data/exports/retry_20260329_143022.json)
     """
-    from ingestion.product_crawler import config
+    from ingestion.sources.products import config
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{prefix}_{timestamp}.json"
     return config.OUTPUT_DIR / filename
@@ -57,30 +57,30 @@ def generate_retry_filename(prefix: str = "retry") -> Path:
 def create_parser() -> argparse.ArgumentParser:
     """Create main argument parser with subcommands."""
     parser = argparse.ArgumentParser(
-        prog="python -m ingestion.product_crawler",
+        prog="python -m ingestion.sources.products",
         description="Product Crawler Pipeline - Extract, Crawl, Retry",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Extract URLs from MongoDB
-  python -m ingestion.product_crawler extract
+  python -m ingestion.sources.products extract
 
   # Test crawl 50 products
-  python -m ingestion.product_crawler crawl --test 50
+  python -m ingestion.sources.products crawl --test 50
 
   # Full crawl with resume
-  python -m ingestion.product_crawler crawl --resume
+  python -m ingestion.sources.products crawl --resume
 
   # Retry failed products
-  python -m ingestion.product_crawler retry
-  python -m ingestion.product_crawler retry --403-only
-  python -m ingestion.product_crawler retry --analyze
+  python -m ingestion.sources.products retry
+  python -m ingestion.sources.products retry --403-only
+  python -m ingestion.sources.products retry --analyze
 
   # Upload results to GCS
-  python -m ingestion.product_crawler upload --file data/exports/full_crawl_results.json
+  python -m ingestion.sources.products upload --file data/exports/full_crawl_results.json
 
   # Run complete pipeline
-  python -m ingestion.product_crawler pipeline --upload
+  python -m ingestion.sources.products pipeline --upload
         """
     )
 
@@ -220,7 +220,7 @@ Examples:
 
 async def run_pipeline(args):
     """Run complete pipeline: extract -> crawl -> retry -> upload."""
-    from ingestion.product_crawler import config
+    from ingestion.sources.products import config
 
     logger.info("=" * 70)
     logger.info("RUNNING COMPLETE PIPELINE")
@@ -231,7 +231,7 @@ async def run_pipeline(args):
     # Step 1: Extract URLs (optional)
     if not args.skip_extract:
         logger.info("\n>>> STEP 1: EXTRACT PRODUCT URLS <<<")
-        from ingestion.product_crawler.extractor import extract_product_urls
+        from ingestion.sources.products.extractor import extract_product_urls
         count = extract_product_urls()
         logger.info(f"Extracted {count} product URLs")
     else:
@@ -239,7 +239,7 @@ async def run_pipeline(args):
 
     # Step 2: Crawl
     logger.info("\n>>> STEP 2: CRAWL PRODUCTS <<<")
-    from ingestion.product_crawler.crawler import run_crawl
+    from ingestion.sources.products.crawler import run_crawl
 
     exit_code = await run_crawl(
         limit=args.test,
@@ -257,7 +257,7 @@ async def run_pipeline(args):
     # Step 3: Retry (optional)
     if not args.skip_retry:
         logger.info("\n>>> STEP 3: RETRY FAILED PRODUCTS <<<")
-        from ingestion.product_crawler.retry import retry_failed_products
+        from ingestion.sources.products.retry import retry_failed_products
 
         # Generate timestamped retry output
         retry_output = generate_retry_filename("retry")
@@ -296,7 +296,7 @@ def upload_result_file(file_path: Path) -> bool:
         bool: True if successful, False otherwise
     """
     from datetime import date
-    from ingestion.product_crawler import config
+    from ingestion.sources.products import config
     from common.storage import upload_to_gcs
 
     if not file_path.exists():
@@ -339,13 +339,13 @@ def main():
 
     # Route to appropriate handler
     if args.command == "extract":
-        from ingestion.product_crawler.extractor import extract_product_urls
+        from ingestion.sources.products.extractor import extract_product_urls
 
         output_file = Path(args.output) if args.output else None
         extract_product_urls(output_file)
 
     elif args.command == "crawl":
-        from ingestion.product_crawler.crawler import run_crawl
+        from ingestion.sources.products.crawler import run_crawl
 
         output_file = Path(args.output) if args.output else None
 
@@ -360,12 +360,12 @@ def main():
         sys.exit(exit_code)
 
     elif args.command == "retry":
-        from ingestion.product_crawler.retry import (
+        from ingestion.sources.products.retry import (
             retry_failed_products,
             retry_403_with_curlcffi,
             analyze_failures
         )
-        from ingestion.product_crawler import config
+        from ingestion.sources.products import config
 
         # Parse input path (default: original crawl results)
         input_file = Path(args.input) if args.input else config.FULL_CRAWL_OUTPUT
@@ -427,7 +427,7 @@ def main():
 
     elif args.command == "upload":
         from datetime import date
-        from ingestion.product_crawler import config
+        from ingestion.sources.products import config
         from common.storage import upload_to_gcs
 
         # Parse file path

@@ -4,8 +4,8 @@ Product URL Extractor from MongoDB.
 Extracts unique product URLs from MongoDB event tracking data for crawling.
 
 Usage:
-    python -m ingestion.product_crawler.extractor
-    python -m ingestion.product_crawler.extractor --output custom_output.csv
+    python -m ingestion.sources.products.extractor
+    python -m ingestion.sources.products.extractor --output custom_output.csv
 """
 
 import csv
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from common.database.mongodb_client import get_mongodb_client
 from common.utils.logger import get_logger
-from ingestion.product_crawler import config
+from ingestion.sources.products import config
 
 logger = get_logger(__name__)
 

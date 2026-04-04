@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 from common.utils.logger import get_logger
-from ingestion.product_crawler.config import TRACKING_PARAMS
+from ingestion.sources.products.config import TRACKING_PARAMS
 
 logger = get_logger(__name__)
 

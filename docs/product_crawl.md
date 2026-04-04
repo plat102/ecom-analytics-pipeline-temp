@@ -30,19 +30,19 @@ Run the entire pipeline (extract → crawl → retry → upload) with a single c
 
 ```bash
 # Full pipeline (production)
-poetry run python -m ingestion.product_crawler pipeline
+poetry run python -m ingestion.sources.products pipeline
 
 # Full pipeline with GCS upload
-poetry run python -m ingestion.product_crawler pipeline --upload
+poetry run python -m ingestion.sources.products pipeline --upload
 
 # Test pipeline (50 products)
-poetry run python -m ingestion.product_crawler pipeline --test 50
+poetry run python -m ingestion.sources.products pipeline --test 50
 
 # Skip extraction if CSV already exists
-poetry run python -m ingestion.product_crawler pipeline --skip-extract
+poetry run python -m ingestion.sources.products pipeline --skip-extract
 
 # Skip retry step (not recommended for production)
-poetry run python -m ingestion.product_crawler pipeline --skip-retry
+poetry run python -m ingestion.sources.products pipeline --skip-retry
 ```
 
 **Pipeline flow:**
@@ -82,10 +82,10 @@ export CRAWLER_CHECKPOINT_INTERVAL=100
 
 ```bash
 # Generate product_url_map.csv from MongoDB
-poetry run python -m ingestion.product_crawler extract
+poetry run python -m ingestion.sources.products extract
 
 # Custom output path
-poetry run python -m ingestion.product_crawler extract --output custom_output.csv
+poetry run python -m ingestion.sources.products extract --output custom_output.csv
 
 # Output: data/exports/product_url_map.csv (~19,417 rows)
 ```
@@ -101,7 +101,7 @@ gcloud storage cp gs://raw_glamira/processed/product_url_map.csv data/exports/
 
 ```bash
 # Test with custom count and concurrency
-poetry run python -m ingestion.product_crawler crawl --test 100 --concurrency 10 --skip-extract
+poetry run python -m ingestion.sources.products crawl --test 100 --concurrency 10 --skip-extract
 ```
 
 #### Production: Full Crawl
@@ -113,7 +113,7 @@ poetry run python -m ingestion.product_crawler crawl --test 100 --concurrency 10
 tmux new -s glamira_crawl
 
 # 2. Run full crawler (crawls ALL products from CSV)
-poetry run python -m ingestion.product_crawler crawl --concurrency 15
+poetry run python -m ingestion.sources.products crawl --concurrency 15
 
 # 3. Detach from tmux: Ctrl+B then D
 # 4. Reattach later: tmux attach -t glamira_crawl
@@ -128,10 +128,10 @@ poetry run python -m ingestion.product_crawler crawl --concurrency 15
 
 ```bash
 # Resume from checkpoint (skips already processed products)
-poetry run python -m ingestion.product_crawler crawl --resume
+poetry run python -m ingestion.sources.products crawl --resume
 
 # Resume with custom concurrency
-poetry run python -m ingestion.product_crawler crawl --resume --concurrency 20
+poetry run python -m ingestion.sources.products crawl --resume --concurrency 20
 ```
 
 The crawler saves checkpoints every 100 products. If interrupted, use `--resume` to continue from where it stopped.
@@ -142,22 +142,22 @@ After crawling, retry failed products with progressive strategies. **All retry o
 
 ```bash
 # Standard retry (httpx with lower concurrency + catalog URL fallback)
-poetry run python -m ingestion.product_crawler retry
+poetry run python -m ingestion.sources.products retry
 # Output: retry_YYYYMMDD_HHMMSS.json (merged, all 19K products)
 
 # Retry only 403 errors with curl_cffi (TLS spoofing + catalog URL)
-poetry run python -m ingestion.product_crawler retry --403-only
+poetry run python -m ingestion.sources.products retry --403-only
 # Output: retry_403_YYYYMMDD_HHMMSS.json (merged, all 19K products)
 
 # Continue improving - retry from previous retry file
-poetry run python -m ingestion.product_crawler retry --403-only --input data/exports/retry_20260329_143022.json
+poetry run python -m ingestion.sources.products retry --403-only --input data/exports/retry_20260329_143022.json
 # Output: retry_403_YYYYMMDD_HHMMSS.json (new merged file)
 
 # Analyze failure patterns (no retry)
-poetry run python -m ingestion.product_crawler retry --analyze
+poetry run python -m ingestion.sources.products retry --analyze
 
 # Custom output (optional, otherwise auto-generates timestamp)
-poetry run python -m ingestion.product_crawler retry --output my_custom_merged.json
+poetry run python -m ingestion.sources.products retry --output my_custom_merged.json
 ```
 
 **Multi-tier Retry Strategy:**
@@ -224,7 +224,7 @@ cat data/exports/full_crawl_results.json | jq '.[] | select(.status == "error")'
 cat data/exports/full_crawl_results.json | jq '[.[] | .status] | group_by(.) | map({status: .[0], count: length})'
 
 # Analyze failures (detailed breakdown)
-poetry run python -m ingestion.product_crawler retry --analyze
+poetry run python -m ingestion.sources.products retry --analyze
 ```
 
 ![product_crawl_result](markdown-images/product_crawl_result.png)
@@ -269,67 +269,67 @@ tmux attach -t glamira_crawl
 
 ```bash
 # Show all available commands
-poetry run python -m ingestion.product_crawler --help
+poetry run python -m ingestion.sources.products --help
 
 # Extract URLs from MongoDB
-poetry run python -m ingestion.product_crawler extract [--output FILE]
+poetry run python -m ingestion.sources.products extract [--output FILE]
 
 # Crawl products
-poetry run python -m ingestion.product_crawler crawl [OPTIONS]
+poetry run python -m ingestion.sources.products crawl [OPTIONS]
 
 # Retry failed products (DLQ)
-poetry run python -m ingestion.product_crawler retry [OPTIONS]
+poetry run python -m ingestion.sources.products retry [OPTIONS]
 
 # Upload results to GCS
-poetry run python -m ingestion.product_crawler upload --file FILE [OPTIONS]
+poetry run python -m ingestion.sources.products upload --file FILE [OPTIONS]
 
 # Run complete pipeline
-poetry run python -m ingestion.product_crawler pipeline [OPTIONS]
+poetry run python -m ingestion.sources.products pipeline [OPTIONS]
 ```
 
 ### Crawl Options
 
 ```bash
 # Test mode
-poetry run python -m ingestion.product_crawler crawl --test 50
+poetry run python -m ingestion.sources.products crawl --test 50
 
 # Full crawl with custom concurrency
-poetry run python -m ingestion.product_crawler crawl --concurrency 20
+poetry run python -m ingestion.sources.products crawl --concurrency 20
 
 # Resume from checkpoint
-poetry run python -m ingestion.product_crawler crawl --resume
+poetry run python -m ingestion.sources.products crawl --resume
 
 # Disable checkpointing
-poetry run python -m ingestion.product_crawler crawl --no-checkpoint
+poetry run python -m ingestion.sources.products crawl --no-checkpoint
 
 # Custom output file
-poetry run python -m ingestion.product_crawler crawl --output custom_results.json
+poetry run python -m ingestion.sources.products crawl --output custom_results.json
 
 # Combined options
-poetry run python -m ingestion.product_crawler crawl --test 100 --concurrency 10 --output test_100.json
+poetry run python -m ingestion.sources.products crawl --test 100 --concurrency 10 --output test_100.json
 ```
 
 ### Retry Options
 
 ```bash
 # Standard DLQ retry (httpx)
-poetry run python -m ingestion.product_crawler retry
+poetry run python -m ingestion.sources.products retry
 # → Output: data/exports/retry_YYYYMMDD_HHMMSS.json
 
 # Retry 403 errors with curl_cffi (from original results)
-poetry run python -m ingestion.product_crawler retry --403-only
+poetry run python -m ingestion.sources.products retry --403-only
 # → Output: data/exports/retry_403_YYYYMMDD_HHMMSS.json
 
 # Continue improving from previous retry
-poetry run python -m ingestion.product_crawler retry --403-only \
+poetry run python -m ingestion.sources.products retry --403-only \
   --input data/exports/retry_20260329_143022.json
 # → Output: data/exports/retry_403_YYYYMMDD_HHMMSS.json (new file)
 
 # Analyze failures (no retry, just report)
-poetry run python -m ingestion.product_crawler retry --analyze
+poetry run python -m ingestion.sources.products retry --analyze
 
 # Custom output filename (override timestamp)
-poetry run python -m ingestion.product_crawler retry --output my_custom_merged.json
+poetry run python -m ingestion.sources.products retry --output my_custom_merged.json
 ```
 
 **Note:** All retry commands output **complete merged files** containing all products.
@@ -371,16 +371,16 @@ Upload final results to GCS Data Lake:
 
 ```bash
 # Upload latest retry file (recommended)
-poetry run python -m ingestion.product_crawler upload \
+poetry run python -m ingestion.sources.products upload \
   --file data/exports/retry_403_20260329_150533.json
 
 # Upload with custom destination
-poetry run python -m ingestion.product_crawler upload \
+poetry run python -m ingestion.sources.products upload \
   --file data/exports/retry_403_20260329_150533.json \
   --destination raw/glamira/products/manual/results.json
 
 # Upload to different bucket
-poetry run python -m ingestion.product_crawler upload \
+poetry run python -m ingestion.sources.products upload \
   --file data/exports/retry_403_20260329_150533.json \
   --bucket my-custom-bucket
 ```

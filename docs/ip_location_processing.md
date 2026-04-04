@@ -24,10 +24,10 @@ This improves extraction speed.
 
 ```bash
 # Test with 100 IPs
-poetry run python ingestion/ip_location/extract_unique_ips.py --limit 100
+poetry run python -m ingestion.sources.ip_locations.extract_unique_ips --limit 100
 
 # Full extraction (run in tmux on VM)
-poetry run python ingestion/ip_location/extract_unique_ips.py
+poetry run python -m ingestion.sources.ip_locations.extract_unique_ips
 ```
 
 Output: `data/exports/ip_list.txt`
@@ -35,7 +35,7 @@ Output: `data/exports/ip_list.txt`
 ### Step 3: Process
 
 ```bash
-poetry run python ingestion/ip_location/process_ip.py \
+poetry run python -m ingestion.sources.ip_locations.process_ip \
   --bin-file ~/data/IP-COUNTRY-REGION-CITY.BIN
 ```
 
