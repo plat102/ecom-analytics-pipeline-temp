@@ -86,6 +86,8 @@ def load_via_external_table(
     external_config = bigquery.ExternalConfig("CSV")
     external_config.source_uris = [gcs_uri]
     external_config.options.skip_leading_rows = 0
+    external_config.options.field_delimiter = "\u0001"
+    external_config.options.quote_character = ""
     external_config.options.allow_quoted_newlines = False
     external_config.options.allow_jagged_rows = True
     external_config.schema = [bigquery.SchemaField("line", "STRING")]
