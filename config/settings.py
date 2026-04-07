@@ -36,6 +36,10 @@ DATA_EXPORTS_DIR = DATA_DIR / 'exports'
 # Google Cloud Storage Configuration
 GCS_BUCKET = os.getenv('GCS_BUCKET', 'raw_glamira')
 
+# BigQuery Configuration
+BQ_PROJECT_ID = os.getenv('BQ_PROJECT_ID', 'ecom-analytics-tp')
+BQ_DATASET_ID = os.getenv('BQ_DATASET_ID', 'glamira_raw')
+
 # Logging Configuration
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
