@@ -62,10 +62,10 @@ def load_via_external_table(
     gcs_uri: str
 ) -> int:
     """
-    Load data from GCS to BigQuery using load job with JSON transformation.
+    Load data from GCS to BigQuery using external table approach.
 
-    Loads JSONL.gz files and wraps each record in a JSON column with
-    ingested_at timestamp.
+    Reads JSONL.gz files as raw text lines via external table,
+    then parses JSON in SQL query when inserting to final table.
 
     Args:
         client: BigQuery client
@@ -77,45 +77,37 @@ def load_via_external_table(
     Returns:
         Number of rows inserted
     """
-    temp_table_id = f"{project_id}.{dataset_id}.{table_name}_load_temp"
+    external_table_id = f"{project_id}.{dataset_id}.{table_name}_external_temp"
     final_table_id = f"{project_id}.{dataset_id}.{table_name}"
 
-    print(f"Loading to temp table: {temp_table_id}")
+    print(f"Creating external table: {external_table_id}")
     print(f"Source URI: {gcs_uri}")
 
-    temp_table_schema = [bigquery.SchemaField("raw_doc", "JSON")]
+    external_config = bigquery.ExternalConfig("CSV")
+    external_config.source_uris = [gcs_uri]
+    external_config.options.skip_leading_rows = 0
+    external_config.options.allow_quoted_newlines = False
+    external_config.options.allow_jagged_rows = True
+    external_config.schema = [bigquery.SchemaField("line", "STRING")]
+
+    external_table = bigquery.Table(external_table_id)
+    external_table.external_data_configuration = external_config
 
     try:
-        client.delete_table(temp_table_id, not_found_ok=True)
-        temp_table = bigquery.Table(temp_table_id, schema=temp_table_schema)
-        client.create_table(temp_table)
-        print(f"Created temp table")
-
-        job_config = bigquery.LoadJobConfig(
-            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            json_extension="GEOJSON"
-        )
-
-        print(f"Starting load job...")
-        load_job = client.load_table_from_uri(
-            gcs_uri,
-            temp_table_id,
-            job_config=job_config
-        )
-
-        load_job.result()
-        print(f"Load job completed: {load_job.output_rows:,} rows loaded to temp table")
+        client.delete_table(external_table_id, not_found_ok=True)
+        external_table = client.create_table(external_table)
+        print(f"External table created")
 
         query = f"""
         INSERT INTO `{final_table_id}` (raw_doc, ingested_at)
         SELECT
-            raw_doc,
+            PARSE_JSON(line) as raw_doc,
             CURRENT_TIMESTAMP() as ingested_at
-        FROM `{temp_table_id}`
+        FROM `{external_table_id}`
+        WHERE line IS NOT NULL AND TRIM(line) != ''
         """
 
-        print(f"Inserting into final table: {final_table_id}")
+        print(f"Running INSERT query to final table: {final_table_id}")
         query_job = client.query(query)
         query_job.result()
 
@@ -125,8 +117,8 @@ def load_via_external_table(
         return rows_inserted
 
     finally:
-        client.delete_table(temp_table_id, not_found_ok=True)
-        print(f"Cleaned up temp table")
+        client.delete_table(external_table_id, not_found_ok=True)
+        print(f"Cleaned up external table")
 
 
 def validate_table(
