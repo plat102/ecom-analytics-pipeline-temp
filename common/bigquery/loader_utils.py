@@ -86,7 +86,9 @@ def load_via_external_table(
 
     external_config = bigquery.ExternalConfig("NEWLINE_DELIMITED_JSON")
     external_config.source_uris = [gcs_uri]
-    external_config.autodetect = True
+
+    schema = [bigquery.SchemaField("line", "STRING")]
+    external_config.schema = schema
 
     external_table = bigquery.Table(external_table_id)
     external_table.external_data_configuration = external_config
@@ -100,9 +102,9 @@ def load_via_external_table(
         query = f"""
         INSERT INTO `{final_table_id}` (raw_doc, ingested_at)
         SELECT
-            TO_JSON(t) as raw_doc,
+            PARSE_JSON(line) as raw_doc,
             CURRENT_TIMESTAMP() as ingested_at
-        FROM `{external_table_id}` AS t
+        FROM `{external_table_id}`
         """
 
         print(f"Running INSERT query...")
