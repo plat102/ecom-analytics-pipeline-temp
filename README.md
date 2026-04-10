@@ -6,22 +6,31 @@ End-to-end data pipeline for analyzing user behavior from the Glamira dataset.
 
 ## Infrastructure
 
-| Component    | Service              | Details                               |
-|--------------|----------------------|---------------------------------------|
-| Data storage | Google Cloud Storage | Bucket `raw_glamira`, asia-southeast1 |
-| Database     | MongoDB 7.0          | GCP VM `e2-standard-2`, us-central1-a |
+| Component      | Service              | Details                                     |
+|----------------|----------------------|---------------------------------------------|
+| Data storage   | Google Cloud Storage | Bucket `raw_glamira`, asia-southeast1       |
+| Database       | MongoDB 7.0          | GCP VM `e2-standard-2`, us-central1-a       |
+| Data warehouse | BigQuery             | Dataset `glamira_raw`, 3 tables (41M+ rows) |
+| Auto-loader    | Cloud Functions      | Gen2, asia-southeast1, GCS → BigQuery       |
 
 ### Project Structure
 
 ```
 ecom-analytics-pipeline/
-├── common/                    # Shared utilities
-├── ingestion/
-│   ├── ip_location/           # IP geolocation enrichment
-│   └── product_crawler/       # Crawl product names from Glamira web
-├── scripts/                   # One-off scripts
-└── docs/                      # Data dictionary, setup guides
+├── bigquery/           # BigQuery operations
+├── common/             # Shared infrastructure (clients, utilities)
+├── config/             # Configuration
+├── ingestion/          # Data ingestion pipelines
+│   └── sources/        # Source-specific extractors
+├── cloud_functions/    # Cloud Functions (GCS → BigQuery auto-load)
+├── scripts/            # Ad-hoc scripts & exploration
+├── tests/              # Test suite
+├── docs/               # Code-level documentation
+├── data/               # Local data (gitignored)
+└── logs/               # Application logs (gitignored)
 ```
+
+**Architecture:** Layered design with separation between infrastructure (`common/`), business logic (`ingestion/`, `bigquery/`), and orchestration (`cloud_functions/`).
 
 ---
 
@@ -108,8 +117,96 @@ Output:
 
 ## Data Pipeline & Warehouse
 
-...
+**Extract → Load → Transform (ELT) pipeline:**
+
+```mermaid
+graph TB
+    subgraph Sources["📥 Data Sources (Storage)"]
+        A1[(MongoDB<br/>41M events)]
+        A2[(Glamira Website<br/>19K products)]
+        A3[(IP2Location DB<br/>Geolocation data)]
+    end
+
+    subgraph Extract["🔄 Extract & Transform (Processing)"]
+        B1["MongoDB streaming<br/>Batch 100K"]
+        B2["Product crawler<br/>Async HTTP"]
+        B3["IP enrichment<br/>ip2location"]
+    end
+
+    subgraph Storage["☁️ Cloud Storage (Storage)"]
+        C[/"raw_glamira bucket<br/>events/|ip_locations/|products/<br/>JSONL.gz format"/]
+    end
+
+    subgraph Load["📊 Load to Warehouse (Processing)"]
+        D1["Manual CLI load.py"]
+        D2["Cloud Function Auto-load"]
+    end
+
+    subgraph Warehouse["🗄️ BigQuery (Storage)"]
+        E1[(events<br/>41M rows)]
+        E2[(ip_locations<br/>3.2M rows)]
+        E3[(products<br/>19K rows)]
+    end
+
+    A1 --> B1 --> C
+    A2 --> B2 --> C
+    A3 --> B3 --> C
+    C --> D1
+    C --> D2
+    D1 --> E1
+    D1 --> E2
+    D1 --> E3
+    D2 --> E1
+    D2 --> E2
+    D2 --> E3
+
+    %% Storage nodes: Cylinder/Trapezoid shape with solid border
+    classDef storage fill:#BBDEFB,stroke:#1565C0,stroke-width:2px,color:#000
+    class A1,A2,A3,C,E1,E2,E3 storage
+
+    %% Processing nodes: Rectangle with dashed border
+    classDef processing fill:#FFE0B2,stroke:#F57C00,stroke-width:2px,stroke-dasharray: 5 5,color:#000
+    class B1,B2,B3,D1,D2 processing
+
+    %% Subgraph styling
+    style Sources fill:#E3F2FD,stroke:#1565C0,stroke-width:2px
+    style Extract fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,stroke-dasharray: 5 5
+    style Storage fill:#E3F2FD,stroke:#1565C0,stroke-width:2px
+    style Load fill:#FFF3E0,stroke:#F57C00,stroke-width:2px,stroke-dasharray: 5 5
+    style Warehouse fill:#E3F2FD,stroke:#1565C0,stroke-width:2px
+```
+
+
+### 1. Export to GCS
+
+**See details:** [Export data to GCS Guide](docs/export_to_gcs.md) - Export from MongoDB, IP processing, web crawling
+
+```bash
+# MongoDB events (41M rows → 415 files)
+poetry run python -m ingestion.sources.mongodb_events export
+
+# IP locations (6.5M rows → 1 file)
+poetry run python -m ingestion.sources.ip_locations.process_ip --bin-file ~/data/IP-COUNTRY-REGION-CITY.BIN
+
+# Products (19K rows → 1 file)
+poetry run python -m ingestion.sources.products pipeline --upload
+```
+
+### 2. Load GCS to BigQuery
+
+**See details:** [Load to BigQuery Guide](docs/load_to_bigquery.md) - Manual CLI + Cloud Function auto-load
+
+```bash
+# Manual load (one-time or testing)
+PYTHONPATH=. poetry run python bigquery/cli/load.py --table events
+
+# Auto-load (production - Cloud Function)
+# Triggers automatically on GCS file upload
+```
+
+---
 
 ## Data Transformation & Visualization
-...
+
+*To be implemented in phase 3 (dbt + Looker Studio)*
 
