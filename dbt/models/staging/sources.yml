@@ -8,3 +8,26 @@ sources:
     tables:
       - name: events
         description: E-commerce events (41.4M rows)
+        columns:
+          - name: _id
+            description: MongoDB ObjectId (unique event identifier)
+            tests:
+              - unique
+              - not_null
+
+      - name: ip_locations
+        description: IP geolocation data (6.4M rows, deduped to 3.2M unique IPs in staging)
+        columns:
+          - name: ip
+            description: IPv4 address (not unique in raw, deduped in staging)
+            tests:
+              - not_null
+
+      - name: products
+        description: Product catalog (18.9K products)
+        columns:
+          - name: product_id
+            description: Unique product identifier
+            tests:
+              - unique
+              - not_null
