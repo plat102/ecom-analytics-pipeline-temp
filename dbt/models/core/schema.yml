@@ -1,0 +1,334 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: |
+      Date dimension table with calendar attributes.
+      Covers 2015-01-01 to 2030-12-31 (5,844 days).
+      Surrogate key format: YYYYMMDD integer (e.g., 20191001 for 2019-10-01).
+    columns:
+      - name: date_key
+        description: Surrogate key (YYYYMMDD integer format)
+        tests:
+          - unique
+          - not_null
+
+      - name: full_date
+        description: Natural key (DATE type)
+        tests:
+          - unique
+          - not_null
+
+      - name: year
+        description: Year (e.g., 2019)
+        tests:
+          - not_null
+
+      - name: quarter
+        description: Quarter (1-4)
+        tests:
+          - not_null
+
+      - name: month
+        description: Month (1-12)
+        tests:
+          - not_null
+
+      - name: week
+        description: Week number in year
+        tests:
+          - not_null
+
+      - name: day_of_week
+        description: Day of week (1=Sunday, 7=Saturday)
+        tests:
+          - not_null
+
+      - name: is_weekend
+        description: TRUE if day is Saturday or Sunday
+        tests:
+          - not_null
+
+  - name: dim_customer
+    description: |
+      Customer dimension table with user and device identifiers.
+      Type 1 SCD (current state only).
+      Natural key: COALESCE(user_id_db, device_id) - handles both registered and guest users.
+      Approximately 7.8M unique customers (95% anonymous guests).
+      Clustered by customer_natural_key for efficient lookups.
+    columns:
+      - name: customer_key
+        description: Surrogate key (sequential integer)
+        tests:
+          - unique
+          - not_null
+
+      - name: customer_natural_key
+        description: Natural key (user_id_db or device_id) - may have duplicates from data quality issues
+        tests:
+          - not_null
+
+      - name: user_id_db
+        description: Registered user ID (NULL for guests)
+
+      - name: device_id
+        description: Device fingerprint identifier
+
+      - name: email_address
+        description: User email address (only for registered users)
+
+  - name: dim_location
+    description: |
+      Location dimension table based on IP geolocation.
+      Type 1 SCD (current state only).
+      Contains 3.24M unique IP addresses with varying levels of geographic detail.
+      Clustered by ip for efficient joins with fact table.
+    columns:
+      - name: location_key
+        description: Surrogate key (sequential integer)
+        tests:
+          - unique
+          - not_null
+
+      - name: ip
+        description: Natural key (IPv4 address)
+        tests:
+          - unique
+          - not_null
+
+      - name: country_name
+        description: Country name
+
+      - name: city_name
+        description: City name
+
+      - name: geo_completeness_level
+        description: |
+          Geographic data completeness (0-3):
+          0 = No geo data
+          1 = Country only
+          2 = Country + region
+          3 = Country + region + city (full)
+        tests:
+          - not_null
+
+      - name: has_geo_data
+        description: TRUE if at least country data exists
+        tests:
+          - not_null
+
+  - name: dim_product
+    description: |
+      Product dimension table from Glamira catalog.
+      Type 1 SCD (current state only).
+      Contains 18,938 jewelry products with pricing and metadata.
+      Clustered by product_id for efficient joins with fact table.
+    columns:
+      - name: product_key
+        description: Surrogate key (sequential integer)
+        tests:
+          - unique
+          - not_null
+
+      - name: product_id
+        description: Natural key (product identifier)
+        tests:
+          - unique
+          - not_null
+
+      - name: url
+        description: Product URL on Glamira website
+
+      - name: product_name
+        description: Product name/title
+
+      - name: sku
+        description: Stock keeping unit (SKU)
+
+      - name: product_type
+        description: Product type classification
+
+      - name: collection_name
+        description: Collection name (e.g., engagement rings, wedding bands)
+
+      - name: gender
+        description: Target gender (male, female, unisex)
+
+      - name: currency_code
+        description: Currency code for pricing (may be NULL for some products)
+
+      - name: price
+        description: Product price (NULL if invalid)
+
+      - name: min_price
+        description: Minimum price (for configurable products)
+
+      - name: max_price
+        description: Maximum price (for configurable products)
+
+      - name: gold_weight
+        description: Gold weight in grams
+
+  - name: dim_device
+    description: |
+      Device junk dimension with device/browser/OS combinations.
+      Type 1 SCD (current state only).
+      Small dimension with approximately 27 distinct combinations.
+      Derived from user_agent parsing in intermediate layer.
+    columns:
+      - name: device_key
+        description: Surrogate key (sequential integer)
+        tests:
+          - unique
+          - not_null
+
+      - name: device_category
+        description: Device category (Mobile, Tablet, Desktop)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Mobile', 'Tablet', 'Desktop']
+
+      - name: browser
+        description: Browser name (Chrome, Safari, Firefox, Edge, Other)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Chrome', 'Safari', 'Firefox', 'Edge', 'Other']
+
+      - name: os
+        description: Operating system (Windows, macOS, Android, iOS, Other)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Windows', 'macOS', 'Android', 'iOS', 'Other']
+
+      - name: is_mobile
+        description: TRUE if device is Mobile or Tablet
+        tests:
+          - not_null
+
+  - name: dim_exchange_rate
+    description: |
+      Exchange rate dimension with currency conversion rates.
+      Type 1 SCD (current state only).
+      Contains 42 currencies with rates to USD.
+      Note: Uses hardcoded rates from seed file (can be replaced with API data).
+    columns:
+      - name: exchange_rate_key
+        description: Surrogate key (sequential integer)
+        tests:
+          - unique
+          - not_null
+
+      - name: currency_code
+        description: Currency code (ISO 4217 format)
+        tests:
+          - unique
+          - not_null
+
+      - name: rate_to_usd
+        description: Exchange rate to USD
+        tests:
+          - not_null
+
+  - name: fact_sales_order_line
+    description: |
+      Fact table at LINE ITEM grain - one row per product per order.
+      Grain: 1 row = 1 product in 1 checkout event.
+      Contains 726.6K line items from 200K checkout events (avg 3.6 items per order).
+      Partitioned by event_date (daily) and clustered by [store_id, product_key, customer_key].
+      All measures are additive (quantity, line_total, line_total_usd).
+    columns:
+      - name: sales_line_key
+        description: Surrogate primary key (sequential integer)
+        tests:
+          - unique
+          - not_null
+
+      - name: event_date
+        description: Event date (partition key)
+        tests:
+          - not_null
+
+      - name: date_key
+        description: Foreign key to dim_date
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+      - name: product_key
+        description: Foreign key to dim_product
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+
+      - name: customer_key
+        description: Foreign key to dim_customer
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+
+      - name: location_key
+        description: Foreign key to dim_location
+        tests:
+          - relationships:
+              to: ref('dim_location')
+              field: location_key
+
+      - name: device_key
+        description: Foreign key to dim_device
+        tests:
+          - relationships:
+              to: ref('dim_device')
+              field: device_key
+
+      - name: exchange_rate_key
+        description: Foreign key to dim_exchange_rate
+        tests:
+          - relationships:
+              to: ref('dim_exchange_rate')
+              field: exchange_rate_key
+
+      - name: order_id
+        description: Degenerate dimension - order identifier
+        tests:
+          - not_null
+
+      - name: store_id
+        description: Degenerate dimension - store identifier (clustering key)
+        tests:
+          - not_null
+
+      - name: quantity
+        description: Quantity of product in this line item (additive measure)
+        tests:
+          - not_null
+
+      - name: unit_price
+        description: Unit price in original currency
+
+      - name: currency_code
+        description: Original currency code
+        tests:
+          - not_null
+
+      - name: line_total
+        description: Line item total in original currency (additive measure, may be NULL if unit_price is NULL)
+
+      - name: line_total_usd
+        description: Line item total converted to USD (additive measure, may be NULL if unit_price or exchange_rate is NULL)
+
+      - name: is_recommendation_influenced
+        description: Flag indicating if recommendation influenced this purchase
+
+      - name: order_timestamp
+        description: Timestamp when order was placed
+        tests:
+          - not_null

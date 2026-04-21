@@ -1,0 +1,185 @@
+version: 2
+
+models:
+  - name: stg_events
+    description: |
+      Staging layer for e-commerce events from MongoDB.
+      Deduplicates records, filters invalid store_ids, and standardizes field types.
+      Includes all 27 event types (checkout_success, product_view, add_to_cart, etc).
+    columns:
+      - name: event_id
+        description: Unique event identifier (MongoDB _id)
+        tests:
+          - unique
+          - not_null
+
+      - name: event_timestamp
+        description: Event timestamp (converted from unix timestamp)
+        tests:
+          - not_null
+
+      - name: event_date
+        description: Event date (extracted from event_timestamp)
+        tests:
+          - not_null
+
+      - name: event_type
+        description: Type of event (checkout_success, product_view, etc)
+        tests:
+          - not_null
+
+      - name: store_id
+        description: Store identifier (1-86 representing different country/region websites)
+        tests:
+          - not_null
+
+      - name: user_id_db
+        description: Registered user ID (NULL for guest users)
+
+      - name: device_id
+        description: Device fingerprint identifier
+
+      - name: email_address
+        description: User email address (only for registered users)
+
+      - name: ip
+        description: IPv4 address of user
+
+      - name: user_agent
+        description: Browser user agent string
+
+      - name: resolution
+        description: Screen resolution (e.g., 1920x1080)
+
+      - name: device_category
+        description: Device category placeholder (parsed in intermediate layer)
+
+      - name: browser
+        description: Browser placeholder (parsed in intermediate layer)
+
+      - name: os
+        description: Operating system placeholder (parsed in intermediate layer)
+
+      - name: order_id
+        description: Order identifier (only for checkout_success events)
+
+      - name: cart_products
+        description: Array of products in cart (only for checkout_success events)
+
+      - name: product_id
+        description: Product identifier (for product-level events)
+
+      - name: currency_code
+        description: Currency code (ISO 4217 format)
+
+      - name: price
+        description: Product price
+
+      - name: is_recommendation_influenced
+        description: Flag indicating if recommendation influenced the action
+
+      - name: ingested_at
+        description: Timestamp when data was ingested from MongoDB
+        tests:
+          - not_null
+
+  - name: stg_ip_locations
+    description: |
+      Staging layer for IP geolocation data from ip2location.
+      Deduplicates IPs, renames fields to match design, and adds geo completeness indicators.
+      Coverage: 3.24M unique IPs with varying levels of geographic detail.
+    columns:
+      - name: ip
+        description: IPv4 address (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: country_name
+        description: Country name
+
+      - name: region_name
+        description: Region/state name
+
+      - name: city_name
+        description: City name
+
+      - name: geo_completeness_level
+        description: |
+          Geographic data completeness indicator:
+          0 = No geo data
+          1 = Country only
+          2 = Country + region
+          3 = Country + region + city (full)
+        tests:
+          - not_null
+
+      - name: has_geo_data
+        description: Boolean flag - TRUE if at least country data exists
+        tests:
+          - not_null
+
+      - name: ingested_at
+        description: Timestamp when data was ingested
+        tests:
+          - not_null
+
+  - name: stg_products
+    description: |
+      Staging layer for product catalog from web scraping.
+      Deduplicates products, fixes invalid prices, and filters by status.
+      Includes 18,938 products with metadata and pricing information.
+    columns:
+      - name: product_id
+        description: Unique product identifier (primary key)
+        tests:
+          - unique
+          - not_null
+
+      - name: url
+        description: Product URL on Glamira website
+
+      - name: product_name
+        description: Product name/title
+
+      - name: sku
+        description: Stock keeping unit (SKU)
+
+      - name: product_type
+        description: Product type classification
+
+      - name: collection_name
+        description: Collection name (e.g., engagement rings, wedding bands)
+
+      - name: gender
+        description: Target gender (male, female, unisex)
+
+      - name: category_id
+        description: Category identifier (NULL if invalid)
+
+      - name: currency_code
+        description: Currency code for pricing (may be NULL for some products)
+
+      - name: price
+        description: Product price (NULL if <= 0)
+
+      - name: min_price
+        description: Minimum price (for configurable products)
+
+      - name: max_price
+        description: Maximum price (for configurable products)
+
+      - name: gold_weight
+        description: Gold weight in grams
+
+      - name: status
+        description: Product status (filtered to 'success' only)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['success']
+
+      - name: ingested_at
+        description: Timestamp when data was ingested
+        tests:
+          - not_null

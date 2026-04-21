@@ -1,0 +1,207 @@
+version: 2
+
+models:
+  - name: int_events_with_device
+    description: |
+      General-purpose intermediate model that enriches ALL events with parsed device information.
+      Parses user_agent string to extract device_category, browser, and OS.
+      Used for future analytics beyond checkout events (40.7M rows).
+    columns:
+      - name: event_id
+        description: Unique event identifier
+        tests:
+          - unique
+          - not_null
+
+      - name: event_timestamp
+        description: Event timestamp
+        tests:
+          - not_null
+
+      - name: event_date
+        description: Event date
+        tests:
+          - not_null
+
+      - name: event_type
+        description: Type of event
+        tests:
+          - not_null
+
+      - name: store_id
+        description: Store identifier
+        tests:
+          - not_null
+
+      - name: device_category
+        description: Parsed device category (Mobile, Tablet, Desktop)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Mobile', 'Tablet', 'Desktop']
+
+      - name: browser
+        description: Parsed browser name (Chrome, Safari, Firefox, Edge, Other)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Chrome', 'Safari', 'Firefox', 'Edge', 'Other']
+
+      - name: os
+        description: Parsed operating system (Windows, macOS, Android, iOS, Other)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Windows', 'macOS', 'Android', 'iOS', 'Other']
+
+  - name: int_checkout_events
+    description: |
+      Specialized intermediate model that filters ONLY checkout_success events early.
+      Implements filter pushdown optimization - reduces rows from 40.7M to 200K (99.5% reduction).
+      This is the foundation for downstream checkout analysis models.
+    columns:
+      - name: event_id
+        description: Unique event identifier
+        tests:
+          - unique
+          - not_null
+
+      - name: event_timestamp
+        description: Event timestamp
+        tests:
+          - not_null
+
+      - name: event_date
+        description: Event date
+        tests:
+          - not_null
+
+      - name: event_type
+        description: Type of event (always checkout_success)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['checkout_success']
+
+      - name: store_id
+        description: Store identifier
+        tests:
+          - not_null
+
+      - name: order_id
+        description: Order identifier (required for checkout events)
+        tests:
+          - not_null
+
+      - name: cart_products
+        description: Array of products in cart (required for checkout events)
+        tests:
+          - not_null
+
+      - name: user_agent
+        description: Browser user agent string (required for device parsing)
+        tests:
+          - not_null
+
+  - name: int_checkout_events_with_device
+    description: |
+      Specialized intermediate model that parses device info ONLY for checkout events.
+      Processes 200K rows instead of 40.7M - eliminates 40.5M unnecessary parsing operations.
+      Performance optimization: 99.5% reduction in parsing operations.
+    columns:
+      - name: event_id
+        description: Unique event identifier
+        tests:
+          - unique
+          - not_null
+
+      - name: event_timestamp
+        description: Event timestamp
+        tests:
+          - not_null
+
+      - name: event_date
+        description: Event date
+        tests:
+          - not_null
+
+      - name: order_id
+        description: Order identifier
+        tests:
+          - not_null
+
+      - name: device_category
+        description: Parsed device category (Mobile, Tablet, Desktop)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Mobile', 'Tablet', 'Desktop']
+
+      - name: browser
+        description: Parsed browser name (Chrome, Safari, Firefox, Edge, Other)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Chrome', 'Safari', 'Firefox', 'Edge', 'Other']
+
+      - name: os
+        description: Parsed operating system (Windows, macOS, Android, iOS, Other)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Windows', 'macOS', 'Android', 'iOS', 'Other']
+
+  - name: int_cart_items
+    description: |
+      Intermediate model that unnests cart_products array to line item grain.
+      Each row represents one product in one order (line item level).
+      Adds customer_natural_key for joining to dim_customer.
+      Source: ~200K checkout events, Output: ~726K line items (avg 3.6 items per order).
+    columns:
+      - name: event_id
+        description: Event identifier (not unique at line item grain)
+        tests:
+          - not_null
+
+      - name: order_id
+        description: Order identifier (not unique at line item grain)
+        tests:
+          - not_null
+
+      - name: product_id
+        description: Product identifier for this line item
+        tests:
+          - not_null
+
+      - name: quantity
+        description: Quantity of product in this line item
+        tests:
+          - not_null
+
+      - name: unit_price
+        description: Unit price for this product
+
+      - name: currency_code
+        description: Currency code for pricing
+        tests:
+          - not_null
+
+      - name: customer_natural_key
+        description: Customer natural key (user_id_db or device_id)
+        tests:
+          - not_null
+
+      - name: device_category
+        description: Device category used for purchase
+        tests:
+          - not_null
+
+      - name: browser
+        description: Browser used for purchase
+        tests:
+          - not_null
+
+      - name: os
+        description: Operating system used for purchase
+        tests:
+          - not_null
