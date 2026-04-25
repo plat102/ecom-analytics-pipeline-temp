@@ -4,7 +4,30 @@
   )
 }}
 
-WITH devices_parsed AS (
+WITH checkout_events AS (
+  SELECT
+    event_id,
+    event_timestamp,
+    event_date,
+    event_type,
+    store_id,
+    user_id_db,
+    device_id,
+    ip,
+    user_agent,
+    order_id,
+    cart_products,
+    currency_code,
+    is_recommendation_influenced,
+    ingested_at,
+  FROM {{ ref('stg_events') }}
+  WHERE event_type = 'checkout_success'
+    AND order_id IS NOT NULL
+    AND cart_products IS NOT NULL
+    AND user_agent IS NOT NULL
+),
+
+events_with_device AS (
   SELECT
     event_id,
     event_timestamp,
@@ -39,12 +62,11 @@ WITH devices_parsed AS (
       WHEN user_agent LIKE '%iPhone%' OR user_agent LIKE '%iPad%' THEN 'iOS'
       ELSE 'Other'
     END AS os,
-  FROM {{ ref('stg_events') }}
-  WHERE user_agent IS NOT NULL
+  FROM checkout_events
 ),
 
 final AS (
-  SELECT * FROM devices_parsed
+  SELECT * FROM events_with_device
 )
 
 

@@ -10,7 +10,7 @@ WITH devices_distinct AS (
     device_category,
     browser,
     os,
-  FROM {{ ref('int_events_with_device') }}
+  FROM {{ ref('int_events_checkout_success') }}
 ),
 
 devices_with_keys AS (

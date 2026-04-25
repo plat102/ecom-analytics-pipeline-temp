@@ -20,6 +20,9 @@ WITH items_enriched AS (
     ci.product_id,
     ci.customer_natural_key,
     ci.ip,
+    ci.country_name,
+    ci.region_name,
+    ci.city_name,
     ci.device_category,
     ci.browser,
     ci.os,
@@ -34,7 +37,7 @@ WITH items_enriched AS (
     ddev.device_key,
     dex.exchange_rate_key,
     dex.rate_to_usd,
-  FROM {{ ref('int_cart_items') }} ci
+  FROM {{ ref('int_events_cart_items') }} ci
   LEFT JOIN {{ ref('dim_date') }} dd
     ON ci.event_date = dd.full_date
   LEFT JOIN {{ ref('dim_product') }} dp
@@ -42,7 +45,9 @@ WITH items_enriched AS (
   LEFT JOIN {{ ref('dim_customer') }} dc
     ON ci.customer_natural_key = dc.customer_natural_key
   LEFT JOIN {{ ref('dim_location') }} dl
-    ON ci.ip = dl.ip
+    ON ci.country_name = dl.country_name
+    AND COALESCE(ci.region_name, '') = COALESCE(dl.region_name, '')
+    AND COALESCE(ci.city_name, '') = COALESCE(dl.city_name, '')
   LEFT JOIN {{ ref('dim_device') }} ddev
     ON ci.device_category = ddev.device_category
     AND ci.browser = ddev.browser
@@ -63,6 +68,7 @@ fact_lines AS (
     exchange_rate_key,
     order_id,
     store_id,
+    ip,
     quantity,
     unit_price,
     currency_code,

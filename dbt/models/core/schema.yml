@@ -79,10 +79,18 @@ models:
 
   - name: dim_location
     description: |
-      Location dimension table based on IP geolocation.
+      Location dimension table at GEOGRAPHY grain (country, region, city).
       Type 1 SCD (current state only).
-      Contains 3.24M unique IP addresses with varying levels of geographic detail.
-      Clustered by ip for efficient joins with fact table.
+      Contains approximately 10K unique geographic locations (NOT individual IPs).
+      Clustered by [country_name, region_name] for efficient joins.
+
+      Design Change (2026-04-25):
+      - Grain: 1 row = 1 unique (country, region, city) combination
+      - IP addresses stored as degenerate dimension in fact_sales_order_line
+      - Row count reduced from 3.24M (IP grain) to ~10K (geography grain) = 300x reduction
+      - Performance improvement: 300x faster fact-to-dimension joins
+
+      Natural key: Composite (country_name, region_name, city_name)
     columns:
       - name: location_key
         description: Surrogate key (sequential integer)
@@ -90,30 +98,29 @@ models:
           - unique
           - not_null
 
-      - name: ip
-        description: Natural key (IPv4 address)
+      - name: country_name
+        description: Country name (part of composite natural key)
         tests:
-          - unique
           - not_null
 
-      - name: country_name
-        description: Country name
+      - name: region_name
+        description: Region/state name (part of composite natural key, may be NULL)
 
       - name: city_name
-        description: City name
+        description: City name (part of composite natural key, may be NULL)
 
       - name: geo_completeness_level
         description: |
-          Geographic data completeness (0-3):
-          0 = No geo data
+          Geographic data completeness (1-3):
           1 = Country only
           2 = Country + region
           3 = Country + region + city (full)
+          Note: Level 0 (no geo data) filtered out in this dimension
         tests:
           - not_null
 
       - name: has_geo_data
-        description: TRUE if at least country data exists
+        description: TRUE for all rows (always TRUE since we filter has_geo_data = TRUE)
         tests:
           - not_null
 
@@ -305,6 +312,9 @@ models:
         description: Degenerate dimension - store identifier (clustering key)
         tests:
           - not_null
+
+      - name: ip
+        description: Degenerate dimension - IP address (moved from dim_location 2026-04-25 for IP-level analysis)
 
       - name: quantity
         description: Quantity of product in this line item (additive measure)

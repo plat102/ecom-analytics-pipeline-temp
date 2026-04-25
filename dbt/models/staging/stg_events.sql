@@ -8,7 +8,7 @@
 WITH events_deduped AS (
   SELECT *
   FROM {{ source('glamira_raw', 'events') }}
-  WHERE store_id BETWEEN '1' AND '86'  -- Filter invalid store_ids
+{#  WHERE store_id BETWEEN '1' AND '86'  -- Filter invalid store_ids #}
   QUALIFY ROW_NUMBER() OVER (
     PARTITION BY _id
     ORDER BY ingested_at DESC

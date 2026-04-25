@@ -2,27 +2,36 @@
   config(
     materialized='table',
     schema='core',
-    cluster_by=['ip']
+    cluster_by=['country_name', 'region_name']
   )
 }}
 
-WITH locations_with_keys AS (
+WITH locations_distinct AS (
+  SELECT DISTINCT
+    country_name,
+    region_name,
+    city_name,
+    geo_completeness_level,
+    has_geo_data,
+  FROM {{ ref('stg_ip_locations') }}
+  WHERE has_geo_data = TRUE
+),
+
+locations_with_keys AS (
   SELECT
     -- Surrogate key
-    ROW_NUMBER() OVER (ORDER BY ip) AS location_key,
+    ROW_NUMBER() OVER (ORDER BY country_name, region_name, city_name) AS location_key,
 
-    -- Natural key
-    ip,
-
-    -- Geographic attributes
+    -- Natural key (composite: country, region, city)
     country_name,
+    region_name,
     city_name,
 
-    -- Quality indicators (from staging)
+    -- Quality indicators
     geo_completeness_level,
     has_geo_data,
 
-  FROM {{ ref('stg_ip_locations') }}
+  FROM locations_distinct
 ),
 
 final AS (
