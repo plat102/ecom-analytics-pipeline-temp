@@ -3,9 +3,18 @@ version: 2
 models:
   - name: dim_date
     description: |
-      Date dimension table with calendar attributes.
+      Comprehensive date dimension table with Kimball best practices.
       Covers 2015-01-01 to 2030-12-31 (5,844 days).
       Surrogate key format: YYYYMMDD integer (e.g., 20191001 for 2019-10-01).
+
+      Contains 41 attributes across 7 categories:
+      - Year attributes (4): year, year_start_date, year_end_date, is_leap_year
+      - Quarter attributes (4): quarter, quarter_name, quarter_start_date, quarter_end_date
+      - Month attributes (7): month, month_name, month_name_short, month_start/end_date, days_in_month, is_last_day_of_month
+      - Week attributes (6): week, iso_week, iso_year, week_start/end_date, week_of_month
+      - Day attributes (5): day_of_week, day_name, day_name_short, day_of_month, day_of_year
+      - Boolean flags (2): is_weekend, is_weekday
+      - Current date flags (4): is_current_day/month/quarter/year
     columns:
       - name: date_key
         description: Surrogate key (YYYYMMDD integer format)
@@ -19,35 +28,172 @@ models:
           - unique
           - not_null
 
+      # Year attributes
       - name: year
-        description: Year (e.g., 2019)
+        description: Calendar year (2015-2030)
         tests:
           - not_null
 
+      - name: year_start_date
+        description: First day of year (Jan 1)
+        tests:
+          - not_null
+
+      - name: year_end_date
+        description: Last day of year (Dec 31)
+        tests:
+          - not_null
+
+      - name: is_leap_year
+        description: TRUE for leap years (366 days)
+        tests:
+          - not_null
+
+      # Quarter attributes
       - name: quarter
         description: Quarter (1-4)
         tests:
           - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4]
 
+      - name: quarter_name
+        description: Quarter name (Q1, Q2, Q3, Q4)
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Q1', 'Q2', 'Q3', 'Q4']
+
+      - name: quarter_start_date
+        description: First day of quarter
+        tests:
+          - not_null
+
+      - name: quarter_end_date
+        description: Last day of quarter
+        tests:
+          - not_null
+
+      # Month attributes
       - name: month
         description: Month (1-12)
         tests:
           - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
-      - name: week
-        description: Week number in year
+      - name: month_name
+        description: Full month name (January, February, ...)
         tests:
           - not_null
 
+      - name: month_name_short
+        description: Short month name (Jan, Feb, Mar, ...)
+        tests:
+          - not_null
+
+      - name: month_start_date
+        description: First day of month
+        tests:
+          - not_null
+
+      - name: month_end_date
+        description: Last day of month
+        tests:
+          - not_null
+
+      - name: days_in_month
+        description: Number of days in month (28-31)
+        tests:
+          - not_null
+
+      - name: is_last_day_of_month
+        description: TRUE if last day of month
+        tests:
+          - not_null
+
+      # Week attributes
+      - name: week
+        description: Week number (BigQuery WEEK - Sunday start)
+        tests:
+          - not_null
+
+      - name: iso_week
+        description: ISO 8601 week number (Monday start, 1-53)
+        tests:
+          - not_null
+
+      - name: iso_year
+        description: ISO year (may differ from calendar year for boundary weeks)
+        tests:
+          - not_null
+
+      - name: week_start_date
+        description: Monday of the week
+        tests:
+          - not_null
+
+      - name: week_end_date
+        description: Sunday of the week
+        tests:
+          - not_null
+
+      - name: week_of_month
+        description: Which week in the month (1-5)
+        tests:
+          - not_null
+
+      # Day attributes
       - name: day_of_week
         description: Day of week (1=Sunday, 7=Saturday)
         tests:
           - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7]
 
-      - name: is_weekend
-        description: TRUE if day is Saturday or Sunday
+      - name: day_name
+        description: Full day name (Monday, Tuesday, ...)
         tests:
           - not_null
+
+      - name: day_name_short
+        description: Short day name (Mon, Tue, Wed, ...)
+        tests:
+          - not_null
+
+      - name: day_of_month
+        description: Day of month (1-31)
+        tests:
+          - not_null
+
+      - name: day_of_year
+        description: Day of year (1-366)
+        tests:
+          - not_null
+
+      # Boolean flags
+      - name: is_weekend
+        description: TRUE if Saturday or Sunday
+        tests:
+          - not_null
+
+      - name: is_weekday
+        description: TRUE if Monday-Friday (inverse of is_weekend)
+        tests:
+          - not_null
+
+      # Current date flags
+      - name: is_current_day
+        description: TRUE if today (updates daily)
+
+      - name: is_current_month
+        description: TRUE if current month (updates daily)
+
+      - name: is_current_quarter
+        description: TRUE if current quarter (updates daily)
+
+      - name: is_current_year
+        description: TRUE if current year (updates daily)
 
   - name: dim_customer
     description: |
@@ -180,6 +326,9 @@ models:
 
       - name: gender
         description: Target gender (male, female, unisex)
+
+      - name: category_id
+        description: Product category identifier (hierarchical taxonomy, may be NULL or '0' for uncategorized)
 
       - name: currency_code
         description: Currency code for pricing (may be NULL for some products)
@@ -321,6 +470,11 @@ models:
           - relationships:
               to: ref('dim_exchange_rate')
               field: exchange_rate_key
+
+      - name: event_id
+        description: MongoDB ObjectId - degenerate dimension for data lineage (trace back to raw events)
+        tests:
+          - not_null
 
       - name: order_id
         description: Degenerate dimension - order identifier

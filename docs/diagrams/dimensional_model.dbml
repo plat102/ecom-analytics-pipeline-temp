@@ -2,66 +2,125 @@
 // Glamira Sales Order Data Warehouse - Single Fact
 // ============================================================
 
-// DIMENSION TABLES
+// DIMENSION TABLES (6 dimensions)
 
 Table dim_date {
-  date_key        INT64       [pk]
-  full_date       DATE
-  year            INT64
-  month           INT64
-  quarter         INT64
-  is_weekend      BOOL
+  date_key                INT64       [pk]
+  full_date               DATE        [unique]
+
+  // Year attributes
+  year                    INT64
+  year_start_date         DATE
+  year_end_date           DATE
+  is_leap_year            BOOL
+
+  // Quarter attributes
+  quarter                 INT64
+  quarter_name            STRING
+  quarter_start_date      DATE
+  quarter_end_date        DATE
+
+  // Month attributes
+  month                   INT64
+  month_name              STRING
+  month_name_short        STRING
+  month_start_date        DATE
+  month_end_date          DATE
+  days_in_month           INT64
+  is_last_day_of_month    BOOL
+
+  // Week attributes
+  week                    INT64
+  iso_week                INT64
+  iso_year                INT64
+  week_start_date         DATE
+  week_end_date           DATE
+  week_of_month           INT64
+
+  // Day attributes
+  day_of_week             INT64
+  day_name                STRING
+  day_name_short          STRING
+  day_of_month            INT64
+  day_of_year             INT64
+
+  // Boolean flags
+  is_weekend              BOOL
+  is_weekday              BOOL
+
+  // Current date flags (relative filtering)
+  is_current_day          BOOL
+  is_current_month        BOOL
+  is_current_quarter      BOOL
+  is_current_year         BOOL
 
   Note: '''
-    Pre-generated calendar dimension (2015-2030).
-
-    Key Design:
-    - date_key (surrogate): Used for FK joins from fact tables
-    - full_date (natural): Unique, used for date range filters
+    Pre-generated calendar dimension (2015-2030, 5,844 days).
+    41 attributes: Year(4), Quarter(4), Month(7), Week(6), Day(5), Flags(2), Current(4).
+    Kimball-compliant with ISO week support and relative date filtering.
   '''
 }
 
 Table dim_product {
   product_key       INT64       [pk]
-  product_id        STRING
+  product_id        STRING      [unique]
+
+  // Product attributes
   url               STRING
   product_name      STRING
-
   sku               STRING
   product_type      STRING
   collection_name   STRING
   gender            STRING
+  category_id       STRING
 
+  // Pricing
   currency_code     STRING
   price             NUMERIC(10,2)
   min_price         NUMERIC(10,2)
   max_price         NUMERIC(10,2)
 
+  // Physical attributes
   gold_weight       NUMERIC(10,4)
 
-  Note: "Product catalog (18,938 products)"
+  Note: '''
+    Product catalog (18,938 products, Nov 2019).
+    Type 1 SCD. Includes taxonomy (category_id), pricing (price/min/max), physical attributes (gold_weight).
+    Clustered by product_id.
+  '''
 }
 
 Table dim_customer {
-  customer_key      INT64       [pk]
-  user_id_db        STRING
-  device_id         STRING
-  email_address     STRING
+  customer_key           INT64       [pk]
+  customer_natural_key   STRING
+  user_id_db             STRING
+  device_id              STRING
+  email_address          STRING
+  valid_from             DATE
+  valid_to               DATE
+  is_current             BOOL
+  row_hash               STRING
 
   Note: '''
-    Customer profiles (95% anonymous guests).
-    device_id = Anonymous customer identifier (NOT related to dim_device).
+    Customer profiles with SCD Type 2 tracking email changes (7.49M rows: 7,490,683 customers + 826 historical versions).
+    Natural key: customer_natural_key = COALESCE(user_id_db, device_id). 95% anonymous guests (device_id only).
+    Clustered by (customer_natural_key, is_current). Incremental materialization with temporal backfill.
   '''
 }
 
 Table dim_location {
-  location_key      INT64       [pk]
-  ip                STRING
-  country_name      STRING
-  city_name         STRING
-  continent         STRING
+  location_key           INT64       [pk]
+  country_name           STRING
+  region_name            STRING
+  city_name              STRING
+  geo_completeness_level INT64
+  has_geo_data           BOOL
 
-  Note: "IP geolocation (3.24M unique IPs)"
+  Note: '''
+    Geographic location dimension at (country, region, city) grain (~10K unique locations).
+    Natural key: (country_name, region_name, city_name). geo_completeness_level: 1=Country, 2=Country+Region, 3=Full.
+    Clustered by (country_name, region_name). IP addresses stored in fact table as degenerate dimension.
+  '''
 }
 
 Table dim_device {
@@ -72,46 +131,64 @@ Table dim_device {
   is_mobile        BOOL
 
   Note: '''
-    Device and browser categories (junk dimension, ~20 rows).
-    Grain: 1 row = 1 unique (device_category, browser) combination.
+    Device junk dimension (~27 rows). Natural key: (device_category, browser, os).
+    GA4-aligned naming. Use for mobile/desktop analysis and browser distribution.
+    Raw data (user_agent, resolution) stored in fact table as degenerate dimensions.
   '''
 }
 
 Table dim_exchange_rate {
   exchange_rate_key   INT64         [pk]
   currency_code       STRING
-  rate_date           DATE
   rate_to_usd         NUMERIC(20,10)
 
-  Note: "Currency conversion rates (42 currencies)"
+  Note: '''
+    Currency conversion rates (42 currencies). Static rates from Nov 2019.
+    Source: exchange_rates.csv seed file. Natural key: currency_code.
+  '''
 }
 
 
 // FACT TABLE (1 table - LINE ITEM GRAIN)
 
 Table fact_sales_order_line {
-  order_line_key          INT64         [pk]
+  sales_line_key          INT64         [pk]
+
+  // Partition field (for BigQuery performance)
+  event_date              DATE
 
   // Foreign Keys to Dimensions
-  order_date_key          INT64         [ref: > dim_date.date_key]
+  // NOTE: Header dimensions (date_key, customer_key, location_key, device_key, exchange_rate_key)
+  // are REPEATED for ALL line items of the same order
+  date_key                INT64         [ref: > dim_date.date_key]
+  product_key             INT64         [ref: > dim_product.product_key]
   customer_key            INT64         [ref: > dim_customer.customer_key]
   location_key            INT64         [ref: > dim_location.location_key]
   device_key              INT64         [ref: > dim_device.device_key]
   exchange_rate_key       INT64         [ref: > dim_exchange_rate.exchange_rate_key]
-  product_key             INT64         [ref: > dim_product.product_key]
 
   // Business Keys (Degenerate Dimensions)
+  event_id                STRING
   order_id                STRING
   store_id                STRING
-  order_time              TIMESTAMP
+  ip                      STRING
+  order_timestamp         TIMESTAMP
 
   // LINE-LEVEL Measures (additive across all rows)
   quantity                INT64
   unit_price              NUMERIC(10,2)
-  line_amount             NUMERIC(10,2)
+  currency_code           STRING
+  line_total              NUMERIC(10,2)
+  line_total_usd          NUMERIC(10,2)
+
+  // Analytics flags
+  is_recommendation_influenced BOOL
 
   Note: '''
-    Single fact table at LINE ITEM grain.
-    Grain: 1 row = 1 product per order
+    Line item grain fact table.
+    Grain: 1 row = 1 product per order. Additive measures: quantity, line_total, line_total_usd.
+    Partitioned by event_date (daily), clustered by (store_id, product_key, customer_key).
+    Degenerate dimensions: event_id (data lineage), order_id, store_id, ip.
+    Order-level metrics derived via aggregation (SUM line_total, COUNT DISTINCT order_id).
   '''
 }

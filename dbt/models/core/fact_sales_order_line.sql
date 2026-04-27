@@ -67,6 +67,7 @@ fact_lines AS (
     location_key,
     device_key,
     exchange_rate_key,
+    event_id,
     order_id,
     store_id,
     ip,

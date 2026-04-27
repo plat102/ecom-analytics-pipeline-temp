@@ -21,6 +21,7 @@ WITH products_with_keys AS (
     product_type,
     collection_name,
     gender,
+    category_id,
 
     -- Pricing
     currency_code,
