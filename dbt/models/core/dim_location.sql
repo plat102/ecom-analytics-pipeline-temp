@@ -6,18 +6,17 @@
   )
 }}
 
-WITH locations_distinct AS (
+WITH stg_ip_location__get_distinct AS (
   SELECT DISTINCT
     country_name,
     region_name,
     city_name,
-    geo_completeness_level,
-    has_geo_data,
+    geo_completeness_level
   FROM {{ ref('stg_ip_locations') }}
-  WHERE has_geo_data = TRUE
+  WHERE country_name IS NOT NULL
 ),
 
-locations_with_keys AS (
+stg_ip_location__add_surrogate_key AS (
   SELECT
     -- Surrogate key
     ROW_NUMBER() OVER (ORDER BY country_name, region_name, city_name) AS location_key,
@@ -27,15 +26,14 @@ locations_with_keys AS (
     region_name,
     city_name,
 
-    -- Quality indicators
-    geo_completeness_level,
-    has_geo_data,
+    -- Quality indicator
+    geo_completeness_level
 
-  FROM locations_distinct
+  FROM stg_ip_location__get_distinct
 ),
 
 final AS (
-  SELECT * FROM locations_with_keys
+  SELECT * FROM stg_ip_location__add_surrogate_key
 )
 
 

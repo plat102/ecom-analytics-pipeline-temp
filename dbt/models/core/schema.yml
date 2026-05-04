@@ -231,12 +231,12 @@ models:
         description: User email address (tracked attribute - creates new version on change)
 
       - name: valid_from
-        description: Start date of this version (when this customer state became active)
+        description: Start timestamp of this version (when this customer state became active, TIMESTAMP precision to handle intra-day changes)
         tests:
           - not_null
 
       - name: valid_to
-        description: End date of this version (9999-12-31 for current version)
+        description: End timestamp of this version (9999-12-31 00:00:00 for current version, TIMESTAMP precision)
         tests:
           - not_null
 

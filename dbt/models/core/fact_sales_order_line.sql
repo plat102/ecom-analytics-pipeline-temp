@@ -10,7 +10,7 @@
   )
 }}
 
-WITH items_enriched AS (
+WITH int_event__join_dimension AS (
   SELECT
     ci.event_id,
     ci.event_timestamp,
@@ -57,7 +57,7 @@ WITH items_enriched AS (
     ON ci.currency_code = dex.currency_code
 ),
 
-fact_lines AS (
+int_event__calculate_metric AS (
   SELECT
     ROW_NUMBER() OVER (ORDER BY event_timestamp, event_id, product_key) AS sales_line_key,
     event_date,
@@ -78,14 +78,14 @@ fact_lines AS (
     quantity * unit_price * rate_to_usd AS line_total_usd,
     is_recommendation_influenced,
     event_timestamp AS order_timestamp,
-  FROM items_enriched
+  FROM int_event__join_dimension
   WHERE product_key IS NOT NULL
     AND customer_key IS NOT NULL
     AND date_key IS NOT NULL
 ),
 
 final AS (
-  SELECT * FROM fact_lines
+  SELECT * FROM int_event__calculate_metric
 )
 
 

@@ -27,19 +27,20 @@ macros:
 
   - name: scd2_calculate_valid_to
     description: |
-      Calculate valid_to date for SCD Type 2 temporal versioning.
+      Calculate valid_to timestamp for SCD Type 2 temporal versioning.
 
       **Logic:**
       - Use LEAD() to peek at the next version's timestamp
-      - If next version exists: valid_to = start date of next version
-      - If no next version (latest version): valid_to = 9999-12-31 (scd_end_date)
+      - If next version exists: valid_to = start timestamp of next version
+      - If no next version (latest version): valid_to = 9999-12-31 00:00:00 (scd_end_date)
+      - Uses TIMESTAMP precision to handle intra-day version changes
 
       **Example:**
       ```
-      customer_natural_key | first_seen_with_this_email | valid_to (calculated)
-      ---------------------|----------------------------|---------------------
-      user123              | 2019-10-01                 | 2019-10-15 (next version starts)
-      user123              | 2019-10-15                 | 9999-12-31 (no next version)
+      customer_natural_key | first_seen_with_this_email     | valid_to (calculated)
+      ---------------------|--------------------------------|---------------------
+      user123              | 2019-10-01 08:30:00            | 2019-10-15 14:22:00 (next version starts)
+      user123              | 2019-10-15 14:22:00            | 9999-12-31 00:00:00 (no next version)
       ```
     arguments:
       - name: timestamp_column
@@ -78,16 +79,17 @@ macros:
 
   - name: scd_end_date
     description: |
-      Return the standard end date for current SCD Type 2 records.
+      Return the standard end timestamp for current SCD Type 2 records.
 
       **Logic:**
-      - Returns `9999-12-31` as the valid_to date for current versions
+      - Returns `9999-12-31 00:00:00` as the valid_to timestamp for current versions
       - This is a common convention in data warehousing to represent "infinity" or "current"
+      - Uses TIMESTAMP precision (not DATE) to match valid_from precision
 
       **Usage:**
       ```sql
       -- For current versions:
-      valid_to = scd_end_date()  -- Results in: DATE('9999-12-31')
+      valid_to = scd_end_date()  -- Results in: TIMESTAMP('9999-12-31 00:00:00')
 
       -- Used in both incremental and initial load:
       SELECT

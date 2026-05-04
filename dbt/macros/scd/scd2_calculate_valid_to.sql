@@ -23,7 +23,7 @@
     fallback_date=none
 ) %}
   COALESCE(
-    LEAD(DATE({{ timestamp_column }})) OVER (
+    LEAD({{ timestamp_column }}) OVER (
       PARTITION BY {{ partition_by_column }}
       ORDER BY {{ timestamp_column }}
     ),

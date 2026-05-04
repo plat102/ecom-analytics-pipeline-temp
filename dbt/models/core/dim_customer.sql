@@ -12,7 +12,7 @@
   )
 }}
 
-WITH users_raw AS (
+WITH stg_event__extract_user AS (
   SELECT
     COALESCE(user_id_db, device_id) AS customer_natural_key,
     user_id_db,
@@ -23,10 +23,7 @@ WITH users_raw AS (
   WHERE COALESCE(user_id_db, device_id) IS NOT NULL
 ),
 
--- Deduplicate and track versions:
--- GROUP BY email, 1 ver created for each changes occur
--- Row hash used for detect changes in incremental runs
-email_changes AS (
+stg_event__track_email_change AS (
   SELECT
     customer_natural_key,
     MAX(user_id_db) AS user_id_db,
@@ -39,13 +36,13 @@ email_changes AS (
       ORDER BY MIN(event_timestamp)
     ) AS version_number,
     {{ scd2_row_hash(['email_address']) }} AS row_hash
-  FROM users_raw
+  FROM stg_event__extract_user
   GROUP BY
     customer_natural_key,
     email_address
 ),
 
-customers_staging AS (
+stg_event__prepare_staging AS (
   SELECT
     customer_natural_key,
     user_id_db,
@@ -55,23 +52,18 @@ customers_staging AS (
     version_number,
     row_hash,
     CURRENT_DATE() AS snapshot_date
-  FROM email_changes
+  FROM stg_event__track_email_change
 ),
 
 {% if is_incremental() %}
--- INCREMENTAL LOGIC:
--- 1. Expire old versions (set valid_to = today, is_current = FALSE)
--- 2. Insert new versions for changed customers
--- 3. Insert brand new customers
 
-existing_customers AS (
+dim_customer__get_current AS (
   SELECT *
   FROM {{ this }}
   WHERE is_current = TRUE
 ),
 
--- Detect changes: Compare row_hash between staging and existing current versions
-changed_customers AS (
+dim_customer__detect_change AS (
   SELECT
     s.customer_natural_key,
     e.customer_key AS old_customer_key,
@@ -80,13 +72,13 @@ changed_customers AS (
     s.email_address,
     s.row_hash,
     s.snapshot_date
-  FROM customers_staging s
-  INNER JOIN existing_customers e
+  FROM stg_event__prepare_staging s
+  INNER JOIN dim_customer__get_current e
     ON s.customer_natural_key = e.customer_natural_key
   WHERE s.row_hash != e.row_hash
 ),
 
-expire_old_versions AS (
+dim_customer__expire_old_version AS (
   SELECT
     customer_key,
     customer_natural_key,
@@ -94,17 +86,17 @@ expire_old_versions AS (
     device_id,
     email_address,
     valid_from,
-    CURRENT_DATE() AS valid_to,
+    CURRENT_TIMESTAMP() AS valid_to,
     FALSE AS is_current,
     row_hash
   FROM {{ this }}
   WHERE customer_natural_key IN (
-    SELECT customer_natural_key FROM changed_customers
+    SELECT customer_natural_key FROM dim_customer__detect_change
   )
   AND is_current = TRUE
 ),
 
-new_versions AS (
+dim_customer__create_new_version AS (
   SELECT
     {{ generate_incremental_surrogate_key('customer_natural_key',
       key_column='customer_key') }} AS customer_key,
@@ -112,69 +104,67 @@ new_versions AS (
     user_id_db,
     device_id,
     email_address,
-    CURRENT_DATE() AS valid_from,
+    CURRENT_TIMESTAMP() AS valid_from,
     {{ scd_end_date() }} AS valid_to,
     TRUE AS is_current,
     row_hash
-  FROM changed_customers
+  FROM dim_customer__detect_change
 ),
 
-brand_new_customers AS (
+dim_customer__identify_new AS (
   SELECT
     s.customer_natural_key,
     s.user_id_db,
     s.device_id,
     s.email_address,
     s.row_hash
-  FROM customers_staging s
-  LEFT JOIN existing_customers e
+  FROM stg_event__prepare_staging s
+  LEFT JOIN dim_customer__get_current e
     ON s.customer_natural_key = e.customer_natural_key
   WHERE e.customer_natural_key IS NULL
 ),
 
-insert_new_customers AS (
+dim_customer__insert_new AS (
   SELECT
     {{ generate_incremental_surrogate_key('customer_natural_key', key_column='customer_key') }} AS customer_key,
     customer_natural_key,
     user_id_db,
     device_id,
     email_address,
-    CURRENT_DATE() AS valid_from,
+    CURRENT_TIMESTAMP() AS valid_from,
     {{ scd_end_date() }} AS valid_to,
     TRUE AS is_current,
     row_hash
-  FROM brand_new_customers
+  FROM dim_customer__identify_new
 ),
 
 {% else %}
--- INITIAL LOAD: Temporal backfill from historical events
--- Reconstruct email versions using window functions to calculate valid_to/is_current
 
-initial_load AS (
+stg_event__reconstruct_version AS (
   SELECT
     ROW_NUMBER() OVER (ORDER BY customer_natural_key, version_number) AS customer_key,
     customer_natural_key,
     user_id_db,
     device_id,
     email_address,
-    DATE(first_seen_with_this_email) AS valid_from,
+    first_seen_with_this_email AS valid_from,
     {{ scd2_calculate_valid_to('first_seen_with_this_email', 'customer_natural_key') }} AS valid_to,
     {{ scd2_calculate_is_current('first_seen_with_this_email', 'customer_natural_key') }} AS is_current,
     row_hash
-  FROM customers_staging
+  FROM stg_event__prepare_staging
 ),
 
 {% endif %}
 
 final AS (
   {% if is_incremental() %}
-    SELECT * FROM expire_old_versions
+    SELECT * FROM dim_customer__expire_old_version
     UNION ALL
-    SELECT * FROM new_versions
+    SELECT * FROM dim_customer__create_new_version
     UNION ALL
-    SELECT * FROM insert_new_customers
+    SELECT * FROM dim_customer__insert_new
   {% else %}
-    SELECT * FROM initial_load
+    SELECT * FROM stg_event__reconstruct_version
   {% endif %}
 )
 

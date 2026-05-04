@@ -6,7 +6,7 @@
   )
 }}
 
-WITH products_with_keys AS (
+WITH stg_product__add_surrogate_key AS (
   SELECT
     -- Surrogate key
     ROW_NUMBER() OVER (ORDER BY product_id) AS product_key,
@@ -36,7 +36,7 @@ WITH products_with_keys AS (
 ),
 
 final AS (
-  SELECT * FROM products_with_keys
+  SELECT * FROM stg_product__add_surrogate_key
 )
 
 

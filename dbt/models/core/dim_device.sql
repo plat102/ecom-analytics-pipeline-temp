@@ -5,7 +5,7 @@
   )
 }}
 
-WITH devices_distinct AS (
+WITH int_event__get_distinct_device AS (
   SELECT DISTINCT
     device_category,
     browser,
@@ -13,7 +13,7 @@ WITH devices_distinct AS (
   FROM {{ ref('int_events_checkout_success') }}
 ),
 
-devices_with_keys AS (
+int_event__add_surrogate_key AS (
   SELECT
     -- Surrogate key
     ROW_NUMBER() OVER (ORDER BY device_category, browser, os) AS device_key,
@@ -29,11 +29,11 @@ devices_with_keys AS (
       ELSE FALSE
     END AS is_mobile,
 
-  FROM devices_distinct
+  FROM int_event__get_distinct_device
 ),
 
 final AS (
-  SELECT * FROM devices_with_keys
+  SELECT * FROM int_event__add_surrogate_key
 )
 
 

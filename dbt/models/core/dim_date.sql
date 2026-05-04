@@ -5,14 +5,14 @@
   )
 }}
 
-WITH date_spine AS (
+WITH base__generate_date_spine AS (
   SELECT date_day
   FROM UNNEST(
     GENERATE_DATE_ARRAY('2015-01-01', '2030-12-31', INTERVAL 1 DAY)
   ) AS date_day
 ),
 
-dates_enriched AS (
+base__enrich_date_attribute AS (
   SELECT
     -- Surrogate key (YYYYMMDD integer format)
     CAST(FORMAT_DATE('%Y%m%d', date_day) AS INT64) AS date_key,
@@ -68,11 +68,11 @@ dates_enriched AS (
     DATE_TRUNC(date_day, QUARTER) = DATE_TRUNC(CURRENT_DATE(), QUARTER) AS is_current_quarter,
     DATE_TRUNC(date_day, YEAR) = DATE_TRUNC(CURRENT_DATE(), YEAR) AS is_current_year,
 
-  FROM date_spine
+  FROM base__generate_date_spine
 ),
 
 final AS (
-  SELECT * FROM dates_enriched
+  SELECT * FROM base__enrich_date_attribute
 )
 
 

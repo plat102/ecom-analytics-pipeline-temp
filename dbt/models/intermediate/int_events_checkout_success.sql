@@ -4,7 +4,7 @@
   )
 }}
 
-WITH checkout_events AS (
+WITH stg_event__filter_checkout AS (
   SELECT
     event_id,
     event_timestamp,
@@ -27,7 +27,7 @@ WITH checkout_events AS (
     AND user_agent IS NOT NULL
 ),
 
-events_with_device AS (
+stg_event__parse_device AS (
   SELECT
     event_id,
     event_timestamp,
@@ -62,11 +62,11 @@ events_with_device AS (
       WHEN user_agent LIKE '%iPhone%' OR user_agent LIKE '%iPad%' THEN 'iOS'
       ELSE 'Other'
     END AS os,
-  FROM checkout_events
+  FROM stg_event__filter_checkout
 ),
 
 final AS (
-  SELECT * FROM events_with_device
+  SELECT * FROM stg_event__parse_device
 )
 
 

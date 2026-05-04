@@ -5,7 +5,7 @@
   )
 }}
 
-WITH events_deduped AS (
+WITH raw_event__deduplicate AS (
   SELECT *
   FROM {{ source('glamira_raw', 'events') }}
 {#  WHERE store_id BETWEEN '1' AND '86'  -- Filter invalid store_ids #}
@@ -15,18 +15,103 @@ WITH events_deduped AS (
   ) = 1  -- Keep latest ingested record per event
 ),
 
-events_cleaned AS (
+raw_event__rename AS (
   SELECT
     -- Primary key
     _id AS event_id,
 
-    -- Temporal fields (time_stamp is INTEGER unix timestamp)
+    -- Temporal fields (keep original for now)
+    time_stamp,
+
+    -- Event metadata
+    collection AS event_type,
+    store_id,
+
+    -- User identifiers
+    user_id_db,
+    device_id,
+    email_address,
+
+    -- Session context
+    ip,
+    user_agent,
+    resolution,
+
+    -- Order fields
+    order_id,
+    cart_products,
+
+    -- Product interaction
+    product_id,
+
+    -- Currency fields
+    currency AS currency_code,
+    price,
+
+    -- Recommendation context
+    recommendation AS is_recommendation_influenced,
+
+    -- Metadata
+    ingested_at
+
+  FROM raw_event__deduplicate
+),
+
+raw_event__cast_type AS (
+  SELECT
+    -- Primary key (already correct type)
+    event_id,
+
+    -- Temporal fields: convert unix timestamp to TIMESTAMP and DATE
     TIMESTAMP_SECONDS(CAST(time_stamp AS INT64)) AS event_timestamp,
     DATE(TIMESTAMP_SECONDS(CAST(time_stamp AS INT64))) AS event_date,
 
-    -- Event metadata (collection is the event type)
-    NULLIF(collection, '') AS event_type,
+    -- Event metadata: cast to proper types
+    event_type,
     CAST(store_id AS INT64) AS store_id,
+
+    -- User identifiers (keep as STRING)
+    user_id_db,
+    device_id,
+    email_address,
+
+    -- Session context
+    ip,
+    user_agent,
+    resolution,
+
+    -- Order fields
+    order_id,
+    cart_products,
+
+    -- Product interaction
+    product_id,
+
+    -- Currency fields
+    currency_code,
+    SAFE_CAST(price AS NUMERIC) AS price,
+
+    -- Recommendation (already BOOL)
+    is_recommendation_influenced,
+
+    -- Metadata
+    ingested_at
+
+  FROM raw_event__rename
+),
+
+raw_event__handle_null AS (
+  SELECT
+    -- Primary key
+    event_id,
+
+    -- Temporal fields
+    event_timestamp,
+    event_date,
+
+    -- Event metadata
+    NULLIF(event_type, '') AS event_type,
+    store_id,
 
     -- User identifiers
     NULLIF(user_id_db, '') AS user_id_db,
@@ -35,38 +120,42 @@ events_cleaned AS (
 
     -- Session context
     NULLIF(ip, '') AS ip,
-
-    -- Device/browser fields - Note: These may need to be parsed from user_agent
     NULLIF(user_agent, '') AS user_agent,
     NULLIF(resolution, '') AS resolution,
 
-    -- Placeholder for device fields (to be enriched later)
-    CAST(NULL AS STRING) AS device_category,
-    CAST(NULL AS STRING) AS browser,
-    CAST(NULL AS STRING) AS os,
-
-    -- Order fields (for checkout_success events)
+    -- Order fields
     NULLIF(order_id, '') AS order_id,
-    cart_products,  -- ARRAY<STRUCT>
+    cart_products,
 
     -- Product interaction
     NULLIF(product_id, '') AS product_id,
 
     -- Currency fields
-    NULLIF(currency, '') AS currency_code,
-    SAFE_CAST(price AS NUMERIC) AS price,
+    NULLIF(currency_code, '') AS currency_code,
+    price,
 
-    -- Recommendation context (field is already BOOL)
-    recommendation AS is_recommendation_influenced,
+    -- Recommendation
+    is_recommendation_influenced,
 
     -- Metadata
-    ingested_at,
+    ingested_at
 
-  FROM events_deduped
+  FROM raw_event__cast_type
+),
+
+raw_event__add_placeholder AS (
+  SELECT
+    *,
+    -- Placeholder for device fields (to be enriched later in intermediate layer)
+    CAST(NULL AS STRING) AS device_category,
+    CAST(NULL AS STRING) AS browser,
+    CAST(NULL AS STRING) AS os
+
+  FROM raw_event__handle_null
 ),
 
 final AS (
-  SELECT * FROM events_cleaned
+  SELECT * FROM raw_event__add_placeholder
 )
 
 

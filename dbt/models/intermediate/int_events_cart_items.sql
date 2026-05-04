@@ -4,7 +4,7 @@
   )
 }}
 
-WITH items_unnested AS (
+WITH int_event__unnest_cart AS (
   SELECT
     e.event_id,
     e.event_timestamp,
@@ -32,7 +32,7 @@ WITH items_unnested AS (
     ON e.ip = loc.ip
 ),
 
-items_selected AS (
+int_event__select_field AS (
   SELECT
     event_id,
     event_timestamp,
@@ -54,11 +54,11 @@ items_selected AS (
     currency_code,
     is_recommendation_influenced,
     customer_natural_key,
-  FROM items_unnested
+  FROM int_event__unnest_cart
 ),
 
 final AS (
-  SELECT * FROM items_selected
+  SELECT * FROM int_event__select_field
 )
 
 
