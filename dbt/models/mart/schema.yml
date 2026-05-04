@@ -1,0 +1,215 @@
+version: 2
+
+models:
+  - name: mart_revenue_daily
+    description: |
+      Pre-aggregated daily revenue metrics by store.
+      Serves Dashboard 1 (Revenue Overview) and Dashboard 3 (Temporal Analysis).
+      Dashboard 3 uses this mart but aggregates by removing store dimension.
+      Grain: 1 row = 1 store × 1 date
+    config:
+      materialized: incremental
+      unique_key: ['store_id', 'order_date']
+      partition_by:
+        field: order_date
+        data_type: date
+        granularity: day
+      cluster_by: ['store_id']
+      incremental_strategy: insert_overwrite
+    columns:
+      - name: order_date
+        description: Order date (partition key)
+        tests:
+          - not_null
+
+      - name: store_id
+        description: Store identifier
+        tests:
+          - not_null
+
+      - name: year
+        description: Calendar year
+        tests:
+          - not_null
+
+      - name: quarter
+        description: Calendar quarter (1-4)
+
+      - name: month
+        description: Calendar month (1-12)
+
+      - name: week_of_year
+        description: Week of year
+
+      - name: day_of_week
+        description: Day of week (1=Sunday, 7=Saturday)
+
+      - name: is_weekend
+        description: Weekend flag (TRUE for Saturday/Sunday)
+
+      - name: order_count
+        description: Number of distinct orders
+        tests:
+          - not_null
+
+      - name: line_item_count
+        description: Number of line items
+        tests:
+          - not_null
+
+      - name: units_sold
+        description: Total units sold
+        tests:
+          - not_null
+
+      - name: revenue_usd
+        description: Total revenue in USD
+        tests:
+          - not_null
+
+      - name: unique_customers
+        description: Number of unique customers
+        tests:
+          - not_null
+
+      - name: guest_orders
+        description: Number of guest orders
+        tests:
+          - not_null
+
+      - name: registered_orders
+        description: Number of registered customer orders
+        tests:
+          - not_null
+
+  - name: mart_geography_summary
+    description: |
+      Pre-aggregated revenue metrics by geography (country, region, city) and date.
+      Serves Dashboard 2 (Geographic Analysis).
+      Enables geographic drill-down analysis.
+      Grain: 1 row = 1 country × 1 region × 1 city × 1 date
+    config:
+      materialized: incremental
+      unique_key: ['country_name', 'region_name', 'city_name', 'order_date']
+      partition_by:
+        field: order_date
+        data_type: date
+        granularity: day
+      cluster_by: ['country_name', 'region_name']
+      incremental_strategy: insert_overwrite
+    columns:
+      - name: order_date
+        description: Order date (partition key)
+        tests:
+          - not_null
+
+      - name: country_name
+        description: Country name
+
+      - name: region_name
+        description: Region/state name
+
+      - name: city_name
+        description: City name
+
+      - name: year
+        description: Calendar year
+        tests:
+          - not_null
+
+      - name: month
+        description: Calendar month (1-12)
+
+      - name: order_count
+        description: Number of distinct orders
+        tests:
+          - not_null
+
+      - name: line_item_count
+        description: Number of line items
+        tests:
+          - not_null
+
+      - name: units_sold
+        description: Total units sold
+        tests:
+          - not_null
+
+      - name: revenue_usd
+        description: Total revenue in USD
+        tests:
+          - not_null
+
+      - name: unique_customers
+        description: Number of unique customers
+        tests:
+          - not_null
+
+  - name: mart_product_performance
+    description: |
+      Pre-aggregated product-level performance metrics by date.
+      Serves Dashboard 4 (Product Performance).
+      Enables product analysis by category, collection, type.
+      Grain: 1 row = 1 product × 1 date
+    config:
+      materialized: incremental
+      unique_key: ['product_id', 'order_date']
+      partition_by:
+        field: order_date
+        data_type: date
+        granularity: day
+      cluster_by: ['category_id', 'collection_name']
+      incremental_strategy: insert_overwrite
+    columns:
+      - name: order_date
+        description: Order date (partition key)
+        tests:
+          - not_null
+
+      - name: product_id
+        description: Product identifier
+        tests:
+          - not_null
+
+      - name: product_name
+        description: Product name
+
+      - name: product_type
+        description: Product type classification
+
+      - name: category_id
+        description: Product category identifier
+
+      - name: collection_name
+        description: Collection name
+
+      - name: year
+        description: Calendar year
+        tests:
+          - not_null
+
+      - name: month
+        description: Calendar month (1-12)
+
+      - name: order_count
+        description: Number of distinct orders containing this product
+        tests:
+          - not_null
+
+      - name: line_item_count
+        description: Number of line items for this product
+        tests:
+          - not_null
+
+      - name: units_sold
+        description: Total units sold
+        tests:
+          - not_null
+
+      - name: revenue_usd
+        description: Total revenue in USD
+        tests:
+          - not_null
+
+      - name: avg_unit_price
+        description: Average unit price for this product

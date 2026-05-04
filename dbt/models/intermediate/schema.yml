@@ -136,3 +136,74 @@ models:
           - not_null
           - accepted_values:
               values: ['Windows', 'macOS', 'Android', 'iOS', 'Other']
+
+  - name: int_sales_with_customer
+    description: |
+      Sales with resolved SCD Type 2 customer join and order_date.
+      Resolves expensive dim_customer SCD Type 2 join ONCE and adds order_date for partitioning.
+      Serves as base for all mart models.
+      Grain: 1 row = 1 line item (same as fact_sales_order_line)
+    config:
+      materialized: table
+      partition_by:
+        field: order_date
+        data_type: date
+        granularity: day
+      cluster_by: ['store_id', 'customer_natural_key']
+    columns:
+      - name: sales_line_key
+        description: Surrogate key for sales line item
+        tests:
+          - unique
+          - not_null
+
+      - name: order_id
+        description: Order identifier
+        tests:
+          - not_null
+
+      - name: store_id
+        description: Store identifier
+        tests:
+          - not_null
+
+      - name: date_key
+        description: Date key (YYYYMMDD format)
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date_key
+
+      - name: order_date
+        description: Order date (added for partitioning)
+        tests:
+          - not_null
+
+      - name: customer_key
+        description: Customer surrogate key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+
+      - name: customer_natural_key
+        description: Customer natural key
+
+      - name: email_address
+        description: Customer email address (current version)
+
+      - name: is_guest
+        description: Guest customer flag
+
+      - name: product_key
+        description: Product surrogate key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_product')
+              field: product_key
+
+      - name: line_total_usd
+        description: Line total converted to USD
