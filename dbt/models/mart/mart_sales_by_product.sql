@@ -57,10 +57,10 @@ dim_product__select AS (
         category_id,
         collection_name,
         gender,
-        price AS catalog_price,
-        min_price AS catalog_min_price,
-        max_price AS catalog_max_price,
-        gold_weight,
+        CAST(price AS NUMERIC) AS catalog_price,
+        CAST(min_price AS NUMERIC) AS catalog_min_price,
+        CAST(max_price AS NUMERIC) AS catalog_max_price,
+        CAST(gold_weight AS NUMERIC) AS gold_weight,
         currency_code AS catalog_currency
 
     FROM {{ ref('dim_product') }}

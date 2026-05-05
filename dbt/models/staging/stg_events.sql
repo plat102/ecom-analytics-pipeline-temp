@@ -36,6 +36,8 @@ raw_event__rename AS (
     ip,
     user_agent,
     resolution,
+    current_url,
+    referrer_url,
 
     -- Order fields
     order_id,
@@ -79,6 +81,8 @@ raw_event__cast_type AS (
     ip,
     user_agent,
     resolution,
+    current_url,
+    referrer_url,
 
     -- Order fields
     order_id,
@@ -122,6 +126,8 @@ raw_event__handle_null AS (
     NULLIF(ip, '') AS ip,
     NULLIF(user_agent, '') AS user_agent,
     NULLIF(resolution, '') AS resolution,
+    NULLIF(current_url, '') AS current_url,
+    NULLIF(referrer_url, '') AS referrer_url,
 
     -- Order fields
     NULLIF(order_id, '') AS order_id,

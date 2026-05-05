@@ -20,16 +20,22 @@ unknown_members AS (
     1.0 AS rate_to_usd
 ),
 
-rates_with_keys AS (
-  SELECT
-    -- Surrogate key (start from 1 to avoid collision with Unknown rows)
-    ROW_NUMBER() OVER (ORDER BY currency_code) AS exchange_rate_key,
-
-    -- Attributes
+rates_distinct AS (
+  SELECT DISTINCT
     currency_code,
     rate_to_usd
-
   FROM {{ ref('exchange_rates') }}
+  WHERE currency_code IS NOT NULL
+    AND currency_code != ''
+    AND currency_code != 'UNDEFINED'
+),
+
+rates_with_keys AS (
+  SELECT
+    ROW_NUMBER() OVER (ORDER BY currency_code) AS exchange_rate_key,
+    currency_code,
+    rate_to_usd
+  FROM rates_distinct
 ),
 
 final AS (

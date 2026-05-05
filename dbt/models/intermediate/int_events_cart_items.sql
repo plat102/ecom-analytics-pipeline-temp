@@ -17,11 +17,26 @@ WITH int_event__unnest_cart AS (
     e.browser,
     e.os,
     e.order_id,
+    e.current_url,
     e.is_recommendation_influenced,
     CAST(item.product_id AS STRING) AS product_id,
     item.amount AS quantity,
-    SAFE_CAST(item.price AS NUMERIC) AS unit_price_from_cart,
-    COALESCE(item.currency, e.currency_code) AS currency_code,
+    item.price AS raw_price_string,
+    COALESCE(item.currency, '') AS transaction_currency_symbol,
+    CASE
+      WHEN item.price LIKE '%.%,%' THEN
+        SAFE_CAST(
+          REPLACE(REPLACE(item.price, '.', ''), ',', '.') AS NUMERIC
+        )
+      WHEN item.price LIKE '%,%.%' THEN
+        SAFE_CAST(REPLACE(item.price, ',', '') AS NUMERIC)
+      WHEN item.price LIKE '%,%' THEN
+        SAFE_CAST(REPLACE(item.price, ',', '.') AS NUMERIC)
+      WHEN item.price LIKE '%.%' THEN
+        SAFE_CAST(item.price AS NUMERIC)
+      ELSE
+        SAFE_CAST(item.price AS NUMERIC)
+    END AS transaction_price,
     COALESCE(e.user_id_db, e.device_id) AS customer_natural_key,
     loc.country_name,
     loc.region_name,
@@ -32,24 +47,23 @@ WITH int_event__unnest_cart AS (
     ON e.ip = loc.ip
 ),
 
-dim_product__get_price AS (
-  SELECT
-    product_id,
-    price AS product_catalog_price,
-    currency_code AS product_catalog_currency
-  FROM {{ ref('dim_product') }}
-),
-
-int_event__enrich_price AS (
+int_event__map_currency AS (
   SELECT
     c.*,
-    p.product_catalog_price,
-    p.product_catalog_currency,
-    COALESCE(c.unit_price_from_cart, p.product_catalog_price) AS unit_price,
-    COALESCE(p.product_catalog_currency, 'EUR') AS currency_code_iso
+    COALESCE(er.currency_code, 'UNKNOWN') AS transaction_currency_code,
+    COALESCE(er.rate_to_usd, 1.0) AS transaction_rate_to_usd
   FROM int_event__unnest_cart c
-  LEFT JOIN dim_product__get_price p
-    ON c.product_id = p.product_id
+  LEFT JOIN {{ ref('exchange_rates') }} er
+    ON c.transaction_currency_symbol = er.currency_symbol
+    AND (
+      er.url_pattern IS NULL
+      OR er.url_pattern = ''
+      OR c.current_url LIKE er.url_pattern
+    )
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY c.event_id, c.product_id
+    ORDER BY COALESCE(er.priority, 999) ASC
+  ) = 1
 ),
 
 int_event__select_field AS (
@@ -70,11 +84,13 @@ int_event__select_field AS (
     order_id,
     product_id,
     quantity,
-    unit_price,
-    currency_code_iso AS currency_code,
+    transaction_price,
+    transaction_currency_symbol,
+    transaction_currency_code,
+    transaction_rate_to_usd,
     is_recommendation_influenced,
     customer_natural_key,
-  FROM int_event__enrich_price
+  FROM int_event__map_currency
 ),
 
 final AS (

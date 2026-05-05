@@ -26,9 +26,11 @@ WITH int_event__join_dimension AS (
     ci.device_category,
     ci.browser,
     ci.os,
-    ci.currency_code,
+    ci.transaction_price,
+    ci.transaction_currency_symbol,
+    ci.transaction_currency_code,
+    ci.transaction_rate_to_usd,
     ci.quantity,
-    ci.unit_price,
     ci.is_recommendation_influenced,
     dd.date_key,
     dp.product_key,
@@ -36,7 +38,6 @@ WITH int_event__join_dimension AS (
     dl.location_key,
     ddev.device_key,
     dex.exchange_rate_key,
-    dex.rate_to_usd,
   FROM {{ ref('int_events_cart_items') }} ci
   LEFT JOIN {{ ref('dim_date') }} dd
     ON ci.event_date = dd.full_date
@@ -54,14 +55,13 @@ WITH int_event__join_dimension AS (
     AND ci.browser = ddev.browser
     AND ci.os = ddev.os
   LEFT JOIN {{ ref('dim_exchange_rate') }} dex
-    ON ci.currency_code = dex.currency_code
+    ON ci.transaction_currency_code = dex.currency_code
 ),
 
 int_event__calculate_metric AS (
   SELECT
     ROW_NUMBER() OVER (ORDER BY event_timestamp, event_id, product_key) AS sales_line_key,
     event_date,
-    -- Substitute NULL foreign keys with Unknown member keys (-1)
     COALESCE(date_key, 19000101) AS date_key,
     COALESCE(product_key, -1) AS product_key,
     COALESCE(customer_key, -1) AS customer_key,
@@ -73,10 +73,11 @@ int_event__calculate_metric AS (
     store_id,
     ip,
     quantity,
-    unit_price,
-    currency_code,
-    quantity * unit_price AS line_total,
-    quantity * unit_price * COALESCE(rate_to_usd, 1.0) AS line_total_usd,
+    transaction_price AS unit_price,
+    transaction_currency_symbol,
+    transaction_currency_code,
+    quantity * transaction_price AS line_total,
+    quantity * transaction_price * COALESCE(transaction_rate_to_usd, 1.0) AS line_total_usd,
     is_recommendation_influenced,
     event_timestamp AS order_timestamp
   FROM int_event__join_dimension
