@@ -61,12 +61,13 @@ int_event__calculate_metric AS (
   SELECT
     ROW_NUMBER() OVER (ORDER BY event_timestamp, event_id, product_key) AS sales_line_key,
     event_date,
-    date_key,
-    product_key,
-    customer_key,
-    location_key,
-    device_key,
-    exchange_rate_key,
+    -- Substitute NULL foreign keys with Unknown member keys (-1)
+    COALESCE(date_key, 19000101) AS date_key,
+    COALESCE(product_key, -1) AS product_key,
+    COALESCE(customer_key, -1) AS customer_key,
+    COALESCE(location_key, -1) AS location_key,
+    COALESCE(device_key, -1) AS device_key,
+    COALESCE(exchange_rate_key, -1) AS exchange_rate_key,
     event_id,
     order_id,
     store_id,
@@ -75,13 +76,10 @@ int_event__calculate_metric AS (
     unit_price,
     currency_code,
     quantity * unit_price AS line_total,
-    quantity * unit_price * rate_to_usd AS line_total_usd,
+    quantity * unit_price * COALESCE(rate_to_usd, 1.0) AS line_total_usd,
     is_recommendation_influenced,
-    event_timestamp AS order_timestamp,
+    event_timestamp AS order_timestamp
   FROM int_event__join_dimension
-  WHERE product_key IS NOT NULL
-    AND customer_key IS NOT NULL
-    AND date_key IS NOT NULL
 ),
 
 final AS (

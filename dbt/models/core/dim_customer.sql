@@ -12,7 +12,34 @@
   )
 }}
 
-WITH stg_event__extract_user AS (
+WITH
+unknown_members AS (
+  SELECT
+    -1 AS customer_key,
+    'UNKNOWN' AS customer_natural_key,
+    CAST(NULL AS STRING) AS user_id_db,
+    CAST(NULL AS STRING) AS device_id,
+    CAST(NULL AS STRING) AS email_address,
+    TIMESTAMP('1900-01-01 00:00:00') AS valid_from,
+    {{ scd_end_date() }} AS valid_to,
+    TRUE AS is_current,
+    {{ scd2_row_hash(['CAST(NULL AS STRING)']) }} AS row_hash
+
+  UNION ALL
+
+  SELECT
+    -2 AS customer_key,
+    'N/A' AS customer_natural_key,
+    CAST(NULL AS STRING) AS user_id_db,
+    CAST(NULL AS STRING) AS device_id,
+    CAST(NULL AS STRING) AS email_address,
+    TIMESTAMP('1900-01-01 00:00:00') AS valid_from,
+    {{ scd_end_date() }} AS valid_to,
+    TRUE AS is_current,
+    {{ scd2_row_hash(['CAST(NULL AS STRING)']) }} AS row_hash
+),
+
+stg_event__extract_user AS (
   SELECT
     COALESCE(user_id_db, device_id) AS customer_natural_key,
     user_id_db,
@@ -157,6 +184,8 @@ stg_event__reconstruct_version AS (
 {% endif %}
 
 final AS (
+  SELECT * FROM unknown_members
+  UNION ALL
   {% if is_incremental() %}
     SELECT * FROM dim_customer__expire_old_version
     UNION ALL
