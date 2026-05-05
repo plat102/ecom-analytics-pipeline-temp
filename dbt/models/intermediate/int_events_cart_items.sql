@@ -20,7 +20,7 @@ WITH int_event__unnest_cart AS (
     e.is_recommendation_influenced,
     CAST(item.product_id AS STRING) AS product_id,
     item.amount AS quantity,
-    SAFE_CAST(item.price AS NUMERIC) AS unit_price,
+    SAFE_CAST(item.price AS NUMERIC) AS unit_price_from_cart,
     COALESCE(item.currency, e.currency_code) AS currency_code,
     COALESCE(e.user_id_db, e.device_id) AS customer_natural_key,
     loc.country_name,
@@ -30,6 +30,26 @@ WITH int_event__unnest_cart AS (
   UNNEST(cart_products) AS item
   LEFT JOIN {{ ref('stg_ip_locations') }} loc
     ON e.ip = loc.ip
+),
+
+dim_product__get_price AS (
+  SELECT
+    product_id,
+    price AS product_catalog_price,
+    currency_code AS product_catalog_currency
+  FROM {{ ref('dim_product') }}
+),
+
+int_event__enrich_price AS (
+  SELECT
+    c.*,
+    p.product_catalog_price,
+    p.product_catalog_currency,
+    COALESCE(c.unit_price_from_cart, p.product_catalog_price) AS unit_price,
+    COALESCE(p.product_catalog_currency, 'EUR') AS currency_code_iso
+  FROM int_event__unnest_cart c
+  LEFT JOIN dim_product__get_price p
+    ON c.product_id = p.product_id
 ),
 
 int_event__select_field AS (
@@ -51,10 +71,10 @@ int_event__select_field AS (
     product_id,
     quantity,
     unit_price,
-    currency_code,
+    currency_code_iso AS currency_code,
     is_recommendation_influenced,
     customer_natural_key,
-  FROM int_event__unnest_cart
+  FROM int_event__enrich_price
 ),
 
 final AS (

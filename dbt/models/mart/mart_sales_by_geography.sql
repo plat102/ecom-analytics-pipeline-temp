@@ -1,27 +1,40 @@
 {{
     config(
         materialized='incremental',
-        unique_key=['country_name', 'region_name', 'city_name', 'order_date'],
+        unique_key=['country_name', 'city_name', 'order_date'],
         partition_by={
             'field': 'order_date',
             'data_type': 'date',
             'granularity': 'day'
         },
-        cluster_by=['country_name', 'region_name'],
+        cluster_by=['country_name'],
         incremental_strategy='insert_overwrite',
         schema='mart'
     )
 }}
 
+{#
+  Grain: country_name × city_name × order_date
+  Serves: Dashboard 2 (Geographic Analysis) - both country-level map and city-level table
+  Looker Studio aggregates to country grain at query time when city is not selected.
+
+  Future scaling note:
+  If row count exceeds ~5M rows (approx. 50+ countries × dense city coverage × 3+ years),
+  consider splitting into:
+    - mart_sales_by_country (country × date) for map tiles
+    - mart_sales_by_city (city × date) for detail tables
+  Monitor with: SELECT COUNT(*) FROM mart.mart_sales_by_geography
+#}
+
 /*
-Mart: Geographic Revenue Summary
+Mart: Sales by Geography
 
 Purpose:
-  - Pre-aggregated revenue metrics by geography (country, region, city) and date
-  - Serves Dashboard 2 (Geographic Analysis)
-  - Enables geographic drill-down analysis
+  - Pre-aggregated sales metrics by country, city, and date
+  - Serves Dashboard 2 (Geographic Analysis) - Geo map and city rankings
+  - Looker Studio aggregates to country level at query time for map visualizations
 
-Grain: 1 row = 1 country × 1 region × 1 city × 1 date
+Grain: 1 row = 1 country × 1 city × 1 date
 */
 
 WITH
@@ -49,8 +62,7 @@ dim_location__select AS (
         location_key,
         country_name,
         region_name,
-        city_name,
-        geo_completeness_level
+        city_name
 
     FROM {{ ref('dim_location') }}
 
@@ -66,12 +78,14 @@ int_sale__join_location AS (
         s.line_total_usd,
         l.country_name,
         l.region_name,
-        l.city_name,
-        l.geo_completeness_level
+        l.city_name
 
     FROM int_sale__select s
     LEFT JOIN dim_location__select l
         ON s.location_key = l.location_key
+
+    -- FILTER: Only include rows with city data (avoid sparse data)
+    WHERE l.city_name IS NOT NULL
 
 ),
 

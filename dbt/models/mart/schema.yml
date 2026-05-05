@@ -1,20 +1,21 @@
 version: 2
 
 models:
-  - name: mart_revenue_daily
+  - name: mart_sales_daily
     description: |
-      Pre-aggregated daily revenue metrics by store.
+      Pre-aggregated daily sales metrics by store and device category.
       Serves Dashboard 1 (Revenue Overview) and Dashboard 3 (Temporal Analysis).
       Dashboard 3 uses this mart but aggregates by removing store dimension.
-      Grain: 1 row = 1 store × 1 date
+
+      Grain: 1 row = 1 store × 1 date × 1 device_category
     config:
       materialized: incremental
-      unique_key: ['store_id', 'order_date']
+      unique_key: ['store_id', 'order_date', 'device_category']
       partition_by:
         field: order_date
         data_type: date
         granularity: day
-      cluster_by: ['store_id']
+      cluster_by: ['store_id', 'device_category']
       incremental_strategy: insert_overwrite
     columns:
       - name: order_date
@@ -26,6 +27,14 @@ models:
         description: Store identifier
         tests:
           - not_null
+
+      - name: device_category
+        description: Device category (Desktop, Mobile, Tablet)
+        tests:
+          - not_null
+
+      - name: is_mobile
+        description: Mobile device flag
 
       - name: year
         description: Calendar year
@@ -42,7 +51,10 @@ models:
         description: Week of year
 
       - name: day_of_week
-        description: Day of week (1=Sunday, 7=Saturday)
+        description: Day of week (1=Monday, 7=Sunday)
+
+      - name: day_name
+        description: Day name (Monday, Tuesday, etc.)
 
       - name: is_weekend
         description: Weekend flag (TRUE for Saturday/Sunday)
@@ -82,20 +94,21 @@ models:
         tests:
           - not_null
 
-  - name: mart_geography_summary
+  - name: mart_sales_by_geography
     description: |
-      Pre-aggregated revenue metrics by geography (country, region, city) and date.
-      Serves Dashboard 2 (Geographic Analysis).
-      Enables geographic drill-down analysis.
-      Grain: 1 row = 1 country × 1 region × 1 city × 1 date
+      Sales metrics by geography. Grain: country × city × date.
+      Looker Studio aggregates to country level at query time for geo map tiles.
+      Serves Dashboard 2 (Geographic Analysis) - both country-level map and city-level table.
+
+      Grain: 1 row = 1 country × 1 city × 1 date
     config:
       materialized: incremental
-      unique_key: ['country_name', 'region_name', 'city_name', 'order_date']
+      unique_key: ['country_name', 'city_name', 'order_date']
       partition_by:
         field: order_date
         data_type: date
         granularity: day
-      cluster_by: ['country_name', 'region_name']
+      cluster_by: ['country_name']
       incremental_strategy: insert_overwrite
     columns:
       - name: order_date
@@ -105,12 +118,16 @@ models:
 
       - name: country_name
         description: Country name
+        tests:
+          - not_null
 
       - name: region_name
-        description: Region/state name
+        description: Region/state name (pass-through, not in grain)
 
       - name: city_name
         description: City name
+        tests:
+          - not_null
 
       - name: year
         description: Calendar year
@@ -137,20 +154,19 @@ models:
 
       - name: revenue_usd
         description: Total revenue in USD
-        tests:
-          - not_null
 
       - name: unique_customers
         description: Number of unique customers
         tests:
           - not_null
 
-  - name: mart_product_performance
+  - name: mart_sales_by_product
     description: |
-      Pre-aggregated product-level performance metrics by date.
+      Pre-aggregated product-level sales metrics by date.
       Serves Dashboard 4 (Product Performance).
-      Enables product analysis by category, collection, type.
-      Grain: 1 row = 1 product × 1 date
+      Enables product analysis by category, collection, type, and customer segment.
+
+      Grain: 1 row = 1 product × 1 date (only days with sales)
     config:
       materialized: incremental
       unique_key: ['product_id', 'order_date']
@@ -174,14 +190,38 @@ models:
       - name: product_name
         description: Product name
 
+      - name: sku
+        description: Stock keeping unit
+
       - name: product_type
         description: Product type classification
 
       - name: category_id
         description: Product category identifier
 
+      - name: category_name
+        description: Product category display name (NEW - derived from category_id)
+
       - name: collection_name
         description: Collection name
+
+      - name: gender
+        description: Gender target (Men, Women, Unisex)
+
+      - name: catalog_price
+        description: Catalog price (list price)
+
+      - name: catalog_min_price
+        description: Minimum catalog price
+
+      - name: catalog_max_price
+        description: Maximum catalog price
+
+      - name: gold_weight
+        description: Gold weight in grams
+
+      - name: catalog_currency
+        description: Catalog currency code
 
       - name: year
         description: Calendar year
@@ -213,3 +253,95 @@ models:
 
       - name: avg_unit_price
         description: Average unit price for this product
+
+      - name: min_unit_price
+        description: Minimum unit price sold
+
+      - name: max_unit_price
+        description: Maximum unit price sold
+
+      - name: registered_customer_orders
+        description: Number of orders from registered customers (NEW)
+
+      - name: guest_orders
+        description: Number of orders from guest customers (NEW)
+
+      - name: unique_email_domains
+        description: Count of distinct email domains (B2B vs B2C indicator) (NEW)
+
+  - name: mart_customer_summary
+    description: |
+      Customer lifetime aggregates for RFM segmentation, cohort analysis, and LTV.
+      Serves Dashboard 5 (Customer Behavior Analysis).
+      Enables customer segmentation and retention analysis.
+
+      Grain: 1 row = 1 customer (aggregated lifetime metrics)
+    config:
+      materialized: table
+      cluster_by: ['email_domain', 'is_guest', 'purchase_frequency_segment']
+    columns:
+      - name: customer_key
+        description: Customer surrogate key
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_natural_key
+        description: Customer natural business key
+        tests:
+          - not_null
+
+      - name: email_address
+        description: Customer email address (NULL for guests)
+
+      - name: email_domain
+        description: Email domain extracted from email address (or 'Guest')
+
+      - name: is_guest
+        description: Guest vs registered customer flag
+
+      - name: first_order_date
+        description: Date of first purchase (cohort identifier)
+        tests:
+          - not_null
+
+      - name: last_order_date
+        description: Date of last purchase (recency indicator)
+        tests:
+          - not_null
+
+      - name: days_between_first_last
+        description: Customer lifetime span in days
+
+      - name: days_since_last_order
+        description: Days since last purchase (RFM Recency metric)
+
+      - name: total_orders
+        description: Total number of orders (RFM Frequency metric)
+        tests:
+          - not_null
+
+      - name: total_revenue_usd
+        description: Total lifetime revenue in USD (RFM Monetary metric)
+        tests:
+          - not_null
+
+      - name: avg_order_value
+        description: Average order value (total_revenue_usd / total_orders)
+
+      - name: total_units_purchased
+        description: Total lifetime units purchased
+
+      - name: primary_device_category
+        description: Most commonly used device category
+
+      - name: primary_country
+        description: Most common purchase country
+
+      - name: purchase_frequency_segment
+        description: Customer segment (One-time, Repeat, Loyal)
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['One-time', 'Repeat', 'Loyal']
