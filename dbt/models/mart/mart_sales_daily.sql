@@ -35,12 +35,15 @@ int_sale__select AS (
         device_key,
         quantity,
         line_total_usd,
-        is_guest
+        is_guest,
+        is_outlier
 
     FROM {{ ref('int_sales_with_customer') }}
 
+    WHERE is_outlier = FALSE
+
     {% if is_incremental() %}
-    WHERE order_date > (SELECT MAX(order_date) FROM {{ this }})
+    AND order_date > (SELECT MAX(order_date) FROM {{ this }})
     {% endif %}
 
 ),

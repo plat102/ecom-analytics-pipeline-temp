@@ -30,9 +30,12 @@ int_sale__select AS (
         line_total_usd,
         customer_natural_key,
         email_address,
-        is_guest
+        is_guest,
+        is_outlier
 
     FROM {{ ref('int_sales_with_customer') }}
+
+    WHERE is_outlier = FALSE
 
 ),
 

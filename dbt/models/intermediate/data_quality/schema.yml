@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: int_dq_sales_outliers
+    description: |
+      Identifies orders with outlier characteristics for data quality monitoring.
+
+      Detection methods:
+      - Placeholder quantities: Common test values (9999, 999, 9998, 1000)
+      - Statistical outliers: P99 threshold for quantity and revenue
+      - Suspicious patterns: Multi-line orders with zero-price items
+
+      This model flags outliers but does NOT filter data. Downstream marts
+      can choose to include or exclude flagged outliers based on use case.
+
+      Example: order_id 620290351 with quantity=9999 from internal email
+    columns:
+      - name: order_id
+        description: Unique order identifier
+        tests:
+          - unique
+          - not_null
+
+      - name: is_placeholder_quantity
+        description: |
+          True if order contains placeholder/test quantity values.
+          Common placeholders: 9999, 999, 9998, 1000
+
+      - name: is_high_quantity_outlier
+        description: |
+          True if max line quantity exceeds P99 threshold.
+          Indicates unusual bulk order or potential data quality issue.
+
+      - name: is_high_value_outlier
+        description: |
+          True if total order value exceeds P99 threshold.
+          High-value orders are valid but flagged for review.
+
+      - name: is_outlier
+        description: |
+          True if ANY of the above outlier flags is triggered.
+          This is the primary flag used by downstream models to filter outliers.
+
+  - name: int_dq_outlier_summary
+    description: |
+      Summary metrics on detected outliers for monitoring dashboard.
+
+      Use this view to:
+      - Monitor outlier detection rates over time
+      - Validate P99 thresholds are appropriate
+      - Identify if outlier patterns change
+
+      Query: SELECT * FROM intermediate.int_dq_outlier_summary

@@ -72,6 +72,20 @@ dim_customer__get_current AS (
 
 ),
 
+outlier__get_flags AS (
+
+    SELECT
+        order_id,
+        is_placeholder_quantity,
+        is_high_quantity_outlier,
+        is_high_value_outlier,
+        is_suspicious_pattern,
+        is_outlier
+
+    FROM {{ ref('int_dq_sales_outliers') }}
+
+),
+
 final AS (
 
     SELECT
@@ -94,13 +108,21 @@ final AS (
         s.product_key,
         s.location_key,
         s.device_key,
-        s.exchange_rate_key
+        s.exchange_rate_key,
+
+        COALESCE(outlier.is_placeholder_quantity, FALSE) AS is_placeholder_quantity,
+        COALESCE(outlier.is_high_quantity_outlier, FALSE) AS is_high_quantity_outlier,
+        COALESCE(outlier.is_high_value_outlier, FALSE) AS is_high_value_outlier,
+        COALESCE(outlier.is_suspicious_pattern, FALSE) AS is_suspicious_pattern,
+        COALESCE(outlier.is_outlier, FALSE) AS is_outlier
 
     FROM fact_sale__select s
     LEFT JOIN dim_date__get_full_date d
         ON s.date_key = d.date_key
     LEFT JOIN dim_customer__get_current c
         ON s.customer_key = c.customer_key
+    LEFT JOIN outlier__get_flags outlier
+        ON s.order_id = outlier.order_id
 
 )
 

@@ -36,12 +36,15 @@ int_sale__select AS (
         unit_price,
         line_total_usd,
         is_guest,
-        email_address
+        email_address,
+        is_outlier
 
     FROM {{ ref('int_sales_with_customer') }}
 
+    WHERE is_outlier = FALSE
+
     {% if is_incremental() %}
-    WHERE order_date > (SELECT MAX(order_date) FROM {{ this }})
+    AND order_date > (SELECT MAX(order_date) FROM {{ this }})
     {% endif %}
 
 ),

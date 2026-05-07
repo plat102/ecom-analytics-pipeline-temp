@@ -153,7 +153,9 @@ dim_customer__identify_new AS (
 
 dim_customer__insert_new AS (
   SELECT
-    {{ generate_incremental_surrogate_key('customer_natural_key', key_column='customer_key') }} AS customer_key,
+    ROW_NUMBER() OVER (ORDER BY customer_natural_key) +
+      (SELECT COALESCE(MAX(customer_key), 0) FROM {{ this }}) +
+      (SELECT COUNT(*) FROM dim_customer__create_new_version) AS customer_key,
     customer_natural_key,
     user_id_db,
     device_id,
