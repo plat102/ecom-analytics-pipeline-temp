@@ -59,14 +59,14 @@ models:
           - accepted_values:
               values: ['Mobile', 'Tablet', 'Desktop']
 
-      - name: browser
+      - name: browser_name
         description: Parsed browser name (Chrome, Safari, Firefox, Edge, Other)
         tests:
           - not_null
           - accepted_values:
               values: ['Chrome', 'Safari', 'Firefox', 'Edge', 'Other']
 
-      - name: os
+      - name: operating_system
         description: Parsed operating system (Windows, macOS, Android, iOS, Other)
         tests:
           - not_null
@@ -123,14 +123,14 @@ models:
           - accepted_values:
               values: ['Mobile', 'Tablet', 'Desktop']
 
-      - name: browser
+      - name: browser_name
         description: Browser name (inherited from event grain upstream)
         tests:
           - not_null
           - accepted_values:
               values: ['Chrome', 'Safari', 'Firefox', 'Edge', 'Other']
 
-      - name: os
+      - name: operating_system
         description: Operating system (inherited from event grain upstream)
         tests:
           - not_null

@@ -33,7 +33,7 @@ raw_event__rename AS (
     email_address,
 
     -- Session context
-    ip,
+    ip AS ip_address,
     user_agent,
     resolution,
     current_url,
@@ -78,7 +78,7 @@ raw_event__cast_type AS (
     email_address,
 
     -- Session context
-    ip,
+    ip_address,
     user_agent,
     resolution,
     current_url,
@@ -123,7 +123,7 @@ raw_event__handle_null AS (
     NULLIF(email_address, '') AS email_address,
 
     -- Session context
-    NULLIF(ip, '') AS ip,
+    NULLIF(ip_address, '') AS ip_address,
     NULLIF(user_agent, '') AS user_agent,
     NULLIF(resolution, '') AS resolution,
     NULLIF(current_url, '') AS current_url,
@@ -154,8 +154,8 @@ raw_event__add_placeholder AS (
     *,
     -- Placeholder for device fields (to be enriched later in intermediate layer)
     CAST(NULL AS STRING) AS device_category,
-    CAST(NULL AS STRING) AS browser,
-    CAST(NULL AS STRING) AS os
+    CAST(NULL AS STRING) AS browser_name,
+    CAST(NULL AS STRING) AS operating_system
 
   FROM raw_event__handle_null
 ),

@@ -42,7 +42,7 @@ models:
       - name: email_address
         description: User email address (only for registered users)
 
-      - name: ip
+      - name: ip_address
         description: IPv4 address of user
 
       - name: user_agent
@@ -54,10 +54,10 @@ models:
       - name: device_category
         description: Device category placeholder (parsed in intermediate layer)
 
-      - name: browser
+      - name: browser_name
         description: Browser placeholder (parsed in intermediate layer)
 
-      - name: os
+      - name: operating_system
         description: Operating system placeholder (parsed in intermediate layer)
 
       - name: order_id
@@ -89,7 +89,7 @@ models:
       Deduplicates IPs, renames fields to match design, and adds geo completeness indicators.
       Coverage: 3.24M unique IPs with varying levels of geographic detail.
     columns:
-      - name: ip
+      - name: ip_address
         description: IPv4 address (primary key)
         tests:
           - unique

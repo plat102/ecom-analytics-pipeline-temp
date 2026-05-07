@@ -12,10 +12,10 @@ WITH int_event__unnest_cart AS (
     e.store_id,
     e.user_id_db,
     e.device_id,
-    e.ip,
+    e.ip_address,
     e.device_category,
-    e.browser,
-    e.os,
+    e.browser_name,
+    e.operating_system,
     e.order_id,
     e.current_url,
     e.is_recommendation_influenced,
@@ -44,7 +44,7 @@ WITH int_event__unnest_cart AS (
   FROM {{ ref('int_events_checkout_success') }} e,
   UNNEST(cart_products) AS item
   LEFT JOIN {{ ref('stg_ip_locations') }} loc
-    ON e.ip = loc.ip
+    ON e.ip_address = loc.ip_address
 ),
 
 int_event__map_currency AS (
@@ -74,13 +74,13 @@ int_event__select_field AS (
     store_id,
     user_id_db,
     device_id,
-    ip,
+    ip_address,
     country_name,
     region_name,
     city_name,
     device_category,
-    browser,
-    os,
+    browser_name,
+    operating_system,
     order_id,
     product_id,
     quantity,

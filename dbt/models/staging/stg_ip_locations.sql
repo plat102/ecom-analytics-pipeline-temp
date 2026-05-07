@@ -14,7 +14,7 @@ WITH raw_ip_location__deduplicate AS (
 raw_ip_location__rename AS (
   SELECT
     -- Primary key
-    ip,
+    ip AS ip_address,
 
     -- Geographic fields
     country AS country_name,
@@ -30,7 +30,7 @@ raw_ip_location__rename AS (
 raw_ip_location__handle_null AS (
   SELECT
     -- Primary key
-    ip,
+    ip_address,
 
     -- Geographic fields: convert empty strings to NULL
     NULLIF(country_name, '') AS country_name,

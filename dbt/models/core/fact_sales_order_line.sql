@@ -19,13 +19,13 @@ WITH int_event__join_dimension AS (
     ci.store_id,
     ci.product_id,
     ci.customer_natural_key,
-    ci.ip,
+    ci.ip_address,
     ci.country_name,
     ci.region_name,
     ci.city_name,
     ci.device_category,
-    ci.browser,
-    ci.os,
+    ci.browser_name,
+    ci.operating_system,
     ci.transaction_price,
     ci.transaction_currency_symbol,
     ci.transaction_currency_code,
@@ -52,8 +52,8 @@ WITH int_event__join_dimension AS (
     AND COALESCE(ci.city_name, '') = COALESCE(dl.city_name, '')
   LEFT JOIN {{ ref('dim_device') }} ddev
     ON ci.device_category = ddev.device_category
-    AND ci.browser = ddev.browser
-    AND ci.os = ddev.os
+    AND ci.browser_name = ddev.browser_name
+    AND ci.operating_system = ddev.operating_system
   LEFT JOIN {{ ref('dim_exchange_rate') }} dex
     ON ci.transaction_currency_code = dex.currency_code
 ),
@@ -71,7 +71,7 @@ int_event__calculate_metric AS (
     event_id,
     order_id,
     store_id,
-    ip,
+    ip_address,
     quantity,
     transaction_price AS unit_price,
     transaction_currency_symbol,

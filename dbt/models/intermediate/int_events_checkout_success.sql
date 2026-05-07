@@ -13,7 +13,7 @@ WITH stg_event__filter_checkout AS (
     store_id,
     user_id_db,
     device_id,
-    ip,
+    ip_address,
     user_agent,
     current_url,
     order_id,
@@ -37,7 +37,7 @@ stg_event__parse_device AS (
     store_id,
     user_id_db,
     device_id,
-    ip,
+    ip_address,
     user_agent,
     current_url,
     order_id,
@@ -56,14 +56,14 @@ stg_event__parse_device AS (
       WHEN user_agent LIKE '%Firefox%' THEN 'Firefox'
       WHEN user_agent LIKE '%Edg/%' THEN 'Edge'
       ELSE 'Other'
-    END AS browser,
+    END AS browser_name,
     CASE
       WHEN user_agent LIKE '%Windows%' THEN 'Windows'
       WHEN user_agent LIKE '%Mac OS%' THEN 'macOS'
       WHEN user_agent LIKE '%Android%' THEN 'Android'
       WHEN user_agent LIKE '%iPhone%' OR user_agent LIKE '%iPad%' THEN 'iOS'
       ELSE 'Other'
-    END AS os,
+    END AS operating_system,
   FROM stg_event__filter_checkout
 ),
 
